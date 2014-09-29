@@ -8,18 +8,21 @@ dispatch:
   - url: "abelana-222.appspot.com/"
     module: default
     
-  - url: "*/import/*"
-    module: import
+#  - url: "*/import/*"
+#    module: import
+#    
+#  - url: "*/management/*"
+#    module: management
+#    
+#  - url: "*/notice/*"
+#    module: notice
+#
+#  - url: "*/timeline/*"
+#    module: timeline
     
-  - url: "*/management/*"
-    module: management
-    
-  - url: "*/notice/*"
-    module: notice
-
-  - url: "*/timeline/*"
-    module: timeline
-    
-  - url: "*/_ah/spi/.*"     # TODO -- be more specific here.
+  - url: "*/_ah/api/.*"
     module: endpoints
 
+  - url: "*/_ah/spi/.*"     # TODO -- be more specific here.
+    module: endpoints
+    
