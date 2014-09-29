@@ -1,0 +1,16 @@
+application: abelana-222
+module: endpoints
+version: 1
+threadsafe: true
+
+runtime: go
+api_version: go1
+
+instance_class: F4
+
+handlers:
+ 
+# Make sure our requests make it to our app
+- url: /_ah/spi/.*
+  script: _go_app  
+  secure: always

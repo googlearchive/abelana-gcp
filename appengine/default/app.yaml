@@ -1,0 +1,31 @@
+application: abelana-222
+module: default
+
+version: 1
+threadsafe: true
+
+runtime: go
+api_version: go1
+
+instance_class: F1
+
+handlers:
+# root url
+- url: /
+  static_files: static/index.html
+  upload: static/index.html
+  secure: always
+  
+- url: /img/*
+  static_dir: static/img
+  secure: always
+  
+- url: /favicon.ico
+  static_files: static/img/favicon.ico
+  upload: static/img/favicon.ico
+
+# for now all html files will be served statically.
+- url: /(.*\.html)$
+  static_files: static/\1
+  upload: static/*.html
+  secure: always

@@ -1,0 +1,25 @@
+application: abelana-222
+
+dispatch:
+
+  - url: "*/favicon.ico"
+    module: default
+    
+  - url: "abelana.appspot.com/"
+    module: default
+    
+  - url: "*/import/*"
+    module: import
+    
+  - url: "*/management/*"
+    module: management
+    
+  - url: "*/notice/*"
+    module: notice
+
+  - url: "*/tlmanager/*"
+    module: tlManager
+    
+  - url: "*/_ah/spi/.*"     # TODO -- be more specific here.
+    module: endpoints
+
