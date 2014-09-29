@@ -1,6 +1,6 @@
 application: abelana-222
 module: endpoints
-version: 1
+version: uno
 threadsafe: true
 
 runtime: go
