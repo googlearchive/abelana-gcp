@@ -1,5 +1,5 @@
 application: abelana-222
-module: tlManager
+module: timeline
 
 version: 1
 threadsafe: true

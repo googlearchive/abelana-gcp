@@ -5,7 +5,7 @@ dispatch:
   - url: "*/favicon.ico"
     module: default
     
-  - url: "abelana.appspot.com/"
+  - url: "abelana-222.appspot.com/"
     module: default
     
   - url: "*/import/*"
@@ -17,8 +17,8 @@ dispatch:
   - url: "*/notice/*"
     module: notice
 
-  - url: "*/tlmanager/*"
-    module: tlManager
+  - url: "*/timeline/*"
+    module: timeline
     
   - url: "*/_ah/spi/.*"     # TODO -- be more specific here.
     module: endpoints
