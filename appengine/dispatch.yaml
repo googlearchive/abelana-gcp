@@ -8,6 +8,9 @@ dispatch:
   - url: "abelana-222.appspot.com/"
     module: default
 
+  - url: "www.abelana-app.com/"
+    module: default
+
 #  - url: "*/import/*"
 #    module: import
 #    
