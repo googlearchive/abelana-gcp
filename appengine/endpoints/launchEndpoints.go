@@ -160,13 +160,12 @@ func (ts *TimelineService) GetTimeLine(r *http.Request, req *TLReq, resp *TLResp
 
 func (ts *TimelineService) GetMyProfile(r *http.Request, req *TLReq, resp *TLResp) error {
 
-    return GetTimeLine(r, req, resp)
+    return nil
 }
 
 func (ts *TimelineService) GetFriendsProfile(r *http.Request, req *TLFReq, resp *TLResp) error {
-  var rq TLReq
-  rq.ATok = req.ATok
-  return GetTimeLine(r, rq, resp)
+
+  return nil
 }
 
 
