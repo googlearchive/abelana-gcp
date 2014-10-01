@@ -5,7 +5,7 @@ import (
     "net/http"
     "time"
 //    "appengine"
-    "appengine/datastore"
+//    "appengine/datastore"
 
     "github.com/crhym3/go-endpoints/endpoints"
 )
@@ -33,49 +33,17 @@ import (
 // Optionally check the discovery doc
 // less greetings.rpc.discovery
 
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// Timeline Service
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// TimelineService will provide for GetTimeLine, GetMyTimeLine, and GetFriendTL
-type TimelineService struct {
+type TLEntry struct {
+    Date        time.Time
+    UserID      string
+    UsersPhoto  string
+    PhotoID     string
+    Comments    []string
+    likes       []string
 }
 
-// Greeting is a datastore entity that represents a single greeting.
-// It also serves as (a part of) a response of GreetingService.
-type Greeting struct {
-  Key     *datastore.Key `json:"id" datastore:"-"`
-  Author  string         `json:"author"`
-  Content string         `json:"content" datastore:",noindex" endpoints:"req"`
-  Date    time.Time      `json:"date"`
-}
+type Friend struct {
 
-// GreetingsList is a response type of GreetingService.List method
-type GreetingsList struct {
-  Items []*Greeting `json:"items"`
-}
-
-// Request type for GreetingService.List
-type GreetingsListReq struct {
-  Limit int `json:"limit" endpoints:"d=10"`
-}
-
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// Import Service
-///////////////////////////////////////////////////////////////////////////////////////////////////
-type ImportService struct {
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// Friend Service
-///////////////////////////////////////////////////////////////////////////////////////////////////
-type FriendService struct {
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// Photo Service
-///////////////////////////////////////////////////////////////////////////////////////////////////
-type PhotoService struct {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -95,7 +63,62 @@ type AToken struct {
 type StatusResp struct {
   Status string
 }
+
+type GCMReq struct {
+    ATok    string
+    RegID   string
+}
+
+type GCMResp struct {
+    Done    string
+}
   
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Timeline Service
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// TimelineService will provide for GetTimeLine, GetMyTimeLine, and GetFriendTL
+type TimelineService struct {
+}
+
+type TLReq struct {
+    ATok    string
+}
+
+type TLFReq struct {
+    ATok    string
+    friend  string
+}
+
+
+type TLResp struct {
+    resp    []TLEntry
+    done    string
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Import Service
+///////////////////////////////////////////////////////////////////////////////////////////////////
+type ImportService struct {
+}
+
+type ImportReq struct {
+    ATok    string
+    Xcred   string
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Friend Service
+///////////////////////////////////////////////////////////////////////////////////////////////////
+type FriendService struct {
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Photo Service
+///////////////////////////////////////////////////////////////////////////////////////////////////
+type PhotoService struct {
+}
+
 func init() {
   initTimeline()
   initImport()
@@ -117,39 +140,54 @@ func initTimeline() {
     panic(err.Error())
   }
 
-  info := api.MethodByName("List").Info()
+  info := api.MethodByName("GetTimeLine").Info()
   info.Name, info.HttpMethod, info.Path, info.Desc =
-    "greets.list", "GET", "greetings", "List most recent greetings."
+    "gettimeline", "GET", "timeline", "List of my main timeline."
+
+  info = api.MethodByName("GetMyProfile").Info()
+  info.Name, info.HttpMethod, info.Path, info.Desc =
+    "getmyprofile", "GET", "timeline", "List of my profile. (uploads)"
+
+  info = api.MethodByName("GetFriendsProfile").Info()
+  info.Name, info.HttpMethod, info.Path, info.Desc =
+    "getfriendsprofile", "GET", "timeline", "List of my friends profile. (uploads)"
 }
 
-//func (ts *TimelineService) GetTimeLine(r *http.Request, req *TLReq, resp *TLResp) error {
-//
-//    return nil
-//}
+func (ts *TimelineService) GetTimeLine(r *http.Request, req *TLReq, resp *TLResp) error {
 
-// List responds with a list of all greetings ordered by Date field.
-// Most recent greets come first.
-func (gs *TimelineService) List(r *http.Request, req *GreetingsListReq, resp *GreetingsList) error {
-
-//  if req.Limit <= 0 {
-//    req.Limit = 10
-//  }
-//
-//  c := endpoints.NewContext(r)
-
-  return nil
+    return nil
 }
+
+func (ts *TimelineService) GetMyProfile(r *http.Request, req *TLReq, resp *TLResp) error {
+
+    return GetTimeLine(r, req, resp)
+}
+
+func (ts *TimelineService) GetFriendsProfile(r *http.Request, req *TLFReq, resp *TLResp) error {
+  var rq TLReq
+  rq.ATok = req.ATok
+  return GetTimeLine(r, rq, resp)
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Import Service
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 func initImport() {
-//  importService := &ImportService{}
-//  api, err := endpoints.RegisterService(importService, "Import", "v1", "Import API", true)
-//  if err != nil {
-//    panic(err.Error())
-//  }
+  importService := &ImportService{}
+  api, err := endpoints.RegisterService(importService, "Import", "v1", "Import API", true)
+  if err != nil {
+    panic(err.Error())
+  }
+  info := api.MethodByName("Import").Info()
+  info.Name, info.HttpMethod, info.Path, info.Desc =
+    "import", "POST", "import", "Import friends from services"
 
+}
+
+func (gs *ImportService) Import(r *http.Request, req *ImportReq, resp *StatusResp) error {
+    resp.Status = "Done"
+    return nil
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -170,6 +208,11 @@ func initFriend() {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 func initPhoto() {
+//  friendService := &FriendService{}
+//  api, err := endpoints.RegisterService(importService, "Friend", "v1", "Friend API", true)
+//  if err != nil {
+//    panic(err.Error())
+//  }
 
 }
 
@@ -184,15 +227,28 @@ func initManagement() {
   if err != nil {
     panic(err.Error())
   }
+
   info := api.MethodByName("Login").Info()
   info.Name, info.HttpMethod, info.Path, info.Desc =
-    "login", "PUT", "tokens", "Login and get a AccessToken token."
+    "login", "GET", "management", "Login and get a AccessToken token."
+
   info = api.MethodByName("Refresh").Info()
   info.Name, info.HttpMethod, info.Path, info.Desc =
-    "refresh", "GET", "tokens", "Refresh an AccessToken."
+    "refresh", "GET", "management", "Refresh an AccessToken."
+
   info = api.MethodByName("Wipeout").Info()
   info.Name, info.HttpMethod, info.Path, info.Desc =
-    "wipeout", "PUT", "wipeout", "Wipeout users data."
+    "wipeout", "DELETE", "management", "Wipeout users data."
+    
+  info = api.MethodByName("Register").Info()
+  info.Name, info.HttpMethod, info.Path, info.Desc =
+    "register", "GET", "management", "Register device for GCM."
+    
+  info = api.MethodByName("Unregister").Info()
+  info.Name, info.HttpMethod, info.Path, info.Desc =
+    "unregister", "GET", "management", "Unregister device for GCM."
+
+
 }
 
 // Login
@@ -210,5 +266,17 @@ func (gs *ManagementService) Refresh(r *http.Request, req *AToken, resp *AToken)
 // Wipeout
 func (gs *ManagementService) Wipeout(r *http.Request, req *AToken, resp *StatusResp) error {
     resp.Status = "Done"
+    return nil
+}
+
+// Register
+func (gs *ManagementService) Register(r *http.Request, req *GCMReq, resp *GCMResp) error {
+    resp.Done = "Ok"
+    return nil
+}
+
+// Unregister
+func (gs *ManagementService) Unregister(r *http.Request, req *GCMReq, resp *GCMResp) error {
+    resp.Done = "Ok"
     return nil
 }
