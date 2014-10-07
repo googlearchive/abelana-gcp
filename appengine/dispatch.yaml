@@ -10,6 +10,9 @@ dispatch:
 
   - url: "www.abelana-app.com/"
     module: default
+    
+  - url: "abelana-app.com/"
+    module: default
 
 #  - url: "*/import/*"
 #    module: import
@@ -28,4 +31,4 @@ dispatch:
 
   - url: "*/_ah/spi/*"     # TODO -- be more specific here.
     module: endpoints
-    
+  

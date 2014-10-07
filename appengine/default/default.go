@@ -1,16 +1,16 @@
-package launchEndpoints
+package wwwsite
 
 import (
-    "fmt"
-    "net/http"
+	"fmt"
+	"net/http"
 
-//    "appengine"
+	//    "appengine"
 )
 
 func init() {
-    http.HandleFunc("/", handler)
+	http.HandleFunc("/", handler)
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprint(w, "Hello, world!")
+	fmt.Fprint(w, "Hello, world!")
 }
