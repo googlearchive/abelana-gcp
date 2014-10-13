@@ -6,7 +6,7 @@ import (
 	"time"
 	//    "appengine"
 	//    "appengine/datastore"
-
+	"github.com/cloud-abelana-go/appengine/endpoints/tokens"
 	"github.com/crhym3/go-endpoints/endpoints"
 )
 
@@ -145,12 +145,16 @@ type TlfReq struct {
 
 // TlResp Response timeline
 type TlResp struct {
-	resp []TLEntry
-	Done string
+	resp   []TLEntry
+	Status string
 }
 
 // GetTimeLine - get the timeline for the user
 func (as *AbelanaService) GetTimeLine(r *http.Request, req *AToken, resp *TlResp) error {
+	err := tokens.ValidateAccessToken(req.Atok)
+	if err != nil {
+		return err
+	}
 	// Stub here
 	return nil
 }
@@ -208,6 +212,7 @@ type FrReq struct {
 
 // GetFriendsList - A list of our friends
 func (as *AbelanaService) GetFriendsList(r *http.Request, req *AToken, resp *FlResp) error {
+	if
 
 	return nil
 }
@@ -278,11 +283,6 @@ type GCMReq struct {
 	RegID string
 }
 
-// GCMResp - Google Cloud messaging response
-type GCMResp struct {
-	Done string
-}
-
 // Login will validate the user and return an Access Token -- Null if invalid.
 func (as *AbelanaService) Login(r *http.Request, req *LoginReq, resp *AToken) error {
 	resp.ATok = "000001 ATOKEN - format will change significantly"
@@ -302,13 +302,13 @@ func (as *AbelanaService) Wipeout(r *http.Request, req *AToken, resp *StatusResp
 }
 
 // Register will start GCM messages to your device
-func (as *AbelanaService) Register(r *http.Request, req *GCMReq, resp *GCMResp) error {
-	resp.Done = "Ok"
+func (as *AbelanaService) Register(r *http.Request, req *GCMReq, resp *StatusResp) error {
+	resp.Status = "Ok"
 	return nil
 }
 
 // Unregister will stop GCM messages from going to your device
-func (as *AbelanaService) Unregister(r *http.Request, req *GCMReq, resp *GCMResp) error {
-	resp.Done = "Ok"
+func (as *AbelanaService) Unregister(r *http.Request, req *GCMReq, resp *StatusResp) error {
+	resp.Status = "Ok"
 	return nil
 }
