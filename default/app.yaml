@@ -1,8 +1,6 @@
 application: abelana-222
 module: default
-
 version: 1
-threadsafe: true
 
 runtime: go
 api_version: go1
@@ -16,11 +14,11 @@ handlers:
   static_files: static/index.html
   upload: static/index.html
   secure: always
-  
+
 - url: /img/*
   static_dir: static/img
   secure: always
-  
+
 - url: /favicon.ico
   static_files: static/img/favicon.ico
   upload: static/img/favicon.ico

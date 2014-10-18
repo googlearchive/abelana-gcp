@@ -7,27 +7,16 @@ import (
 	"log"
 	"net/http"
 	"time"
-	// "appengine"
+
+	"appengine"
 	//    "appengine/datastore"
-	//	"github.com/cloud-abelana-go/appengine/endpoints/tokens"
 	"github.com/go-martini/martini"
+	// "github.com/garyburd/redigo/redis"
 )
 
 // The initial version of this will provide stubs for everything.  If there are changes, then
 // be sure to get the Android app updated.  We are trying to put this together so that we can later
 // refactor into several modules.
-
-// How to generate Discovery Documentation & Client Liraries
-//
-// Android Apps
-//  URL='https://endpoints-dot-abelana-222.appspot.com/_ah/api/discovery/v1/apis/management/v1/rest'
-//  curl -s $URL > management.rest.discovery
-//
-// $ endpointscfg.py gen_client_lib java -bs gradle -o . management.rest.discovery
-// iOS Apps
-// Note the rpc suffix in the URL:
-// $ URL='https://my-app-id.appspot.com/_ah/api/discovery/v1/apis/greeting/v1/rpc'
-// $ curl -s $URL > greetings.rpc.discovery
 
 // Comment holds all comments
 type Comment struct {
@@ -58,81 +47,43 @@ type Friend struct {
 	ShareFrom bool
 }
 
-// func CustomMartini() *martini.ClassicMartini {
-// 	r := martini.NewRouter()
-// 	m := martini.New()
-// 	m.Use(martini.Logger())
-// 	m.Use(martini.Recovery())
-// 	m.Use(martini.Static("public"))
-// 	m.MapTo(r, (*martini.Routes)(nil))
-// 	m.Action(r.Handle)
-// 	return &martini.ClassicMartini{m, r}
-// }
-
-// func AppEngine(c appengine.Context, r *http.Request) {
-// 	c.Map(appengine.NewContext(r))
-// }
+func AppEngine(c martini.Context, r *http.Request) {
+	c.MapTo(appengine.NewContext(r), (*appengine.Context)(nil))
+}
 
 func init() {
 	m := martini.Classic()
-	// m.MapTo(appengine.NewContext(r), (*appengine.Context)(nil))
+	m.Use(AppEngine)
+	m.Use(haveCerts)
 
-	// m.Use(func(c martini.Context, req *http.Request) {
-	// 	ctx := appengine.NewContext(req)
-	// 	c.MapTo(ctx, (*appengine.Context)(nil))
-	// })
-
-	m.Get("/", func() string {
-		return "Hello from Martini/server!"
-	})
-	m.Get("/hello/:name", func(p martini.Params) string {
-		return "Hi there " + p["name"]
-	})
 	log.Print("b4 things")
 
 	m.Get("/login/:gittok", Login)
 
-	// m.Use(AuthMe) // Hopefully, only do this for atok's
+	m.Get("/user/:atok/refresh", AtokAuth, Refresh)
+	m.Delete("/user/:atok", AtokAuth, Wipeout)
+	m.Post("/user/:atok/facebook/:fbkey", AtokAuth, Import)
+	m.Post("/user/:atok/plus/:plkey", AtokAuth, Import)
+	m.Post("/user/:atok/yahoo/:ykey", AtokAuth, Import)
+	m.Get("/user/:atok/friends/", AtokAuth, GetFriendsList)
+	m.Get("/user/:atok/photo", AtokAuth, GetUserPhoto)
+	m.Put("/user/:atok/friends/:friendid", AtokAuth, AddFriend)
 
-	// The basics of REST
-	// When dealing with a Collection URI like: http://example.com/resources/
-	// GET: List the members of the collection, complete with their member URIs for further navigation.
-	// For example, list all the cars for sale.
-	// PUT: Meaning defined as "replace the entire collection with another collection".
-	// POST: Create a new entry in the collection where the ID is assigned automatically by the
-	// collection. The ID created is usually included as part of the data returned by this operation.
-	// DELETE: Meaning defined as "delete the entire collection".
-	//
-	// When dealing with a Member URI like: http://example.com/resources/7HOU57Y
-	// GET: Retrieve a representation of the addressed member of the collection expressed in an
-	// appropriate MIME type.
-	// PUT: Update the addressed member of the collection or create it with the specified ID.
-	// POST: Treats the addressed member as a collection in its own right and creates a new subordinate
-	// of it.
-	// DELETE: Delete the addressed member of the collection.
+	m.Get("/friend/:atok/:friendid", AtokAuth, GetFriend)
 
-	m.Get("/user/:atok/refresh", Refresh)
-	m.Delete("/user/:atok", Wipeout)
-	m.Post("/user/:atok/facebook/:fbkey", Import)
-	m.Post("/user/:atok/plus/:plkey", Import)
-	m.Post("/user/:atok/yahoo/:ykey", Import)
-	m.Get("/user/:atok/friends/", GetFriendsList)
-	m.Get("/user/:atok/photo", GetUserPhoto)
-	m.Put("/user/:atok/friends/:friendid", AddFriend)
+	m.Put("/device/:atok/:regid", AtokAuth, Register)
+	m.Delete("/device/:atok/:regid", AtokAuth, Unregister)
 
-	m.Get("/friend/:atok/:friendid", GetFriend)
+	m.Get("/timeline/:atok/:lastid", AtokAuth, GetTimeLine)
+	m.Get("/profile/:atok/:lastid", AtokAuth, GetMyProfile)
+	m.Get("/profile/:atok/:userid/:lastid", AtokAuth, GetFriendsProfile)
 
-	m.Put("/device/:atok/:regid", Register)
-	m.Delete("/device/:atok/:regid", Unregister)
+	m.Post("/photo/:atok/:photoid/comment", AtokAuth, SetPhotoComments)
+	m.Put("/photo/:atok/:photoid/like", AtokAuth, Like)
+	m.Delete("/photo/:atok/:photoid/like", AtokAuth, Unlike)
+	m.Get("/photo/:atok/:photoid/comments", AtokAuth, GetComments)
 
-	m.Get("/timeline/:atok/:lastid", GetTimeLine)
-	m.Get("/profile/:atok/:lastid", GetMyProfile)
-	m.Get("/profile/:atok/:userid/:lastid", GetFriendsProfile)
-
-	m.Post("/photo/:atok/:photoid/comment", SetPhotoComments)
-	m.Put("/photo/:atok/:photoid/like", Like)
-	m.Delete("/photo/:atok/:photoid/like", Unlike)
-	m.Get("/photo/:atok/:photoid/comments", GetComments)
+	tokenInit()
 
 	http.Handle("/", m)
 }
@@ -159,18 +110,6 @@ func replyJson(w http.ResponseWriter, v interface{}) {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Timeline
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-
-// TlfReq Timeline Friend Request
-type TlfReq struct {
-	ATok   string
-	friend string
-}
-
-// TlResp Response timeline
-type TlResp struct {
-	resp   []TLEntry
-	Status string
-}
 
 // GetTimeLine - get the timeline for the user (token) : TlResp
 func GetTimeLine(p martini.Params, w http.ResponseWriter, req *http.Request) {
@@ -216,7 +155,6 @@ func GetTimeLine(p martini.Params, w http.ResponseWriter, req *http.Request) {
 		TLEntry{time.Now(), "00001", "0009", 3},
 		TLEntry{time.Now(), "00001", "0005", 21}}
 	tl := &Timeline{"Ok", timeline}
-
 	replyJson(w, tl)
 }
 
@@ -300,11 +238,6 @@ func GetComments(p martini.Params) string {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Management
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Login will validate the user and return an Access Token -- Null if invalid. (LoginReq) : ATok
-func Login(p martini.Params) string {
-	return `{"Status": "Ok", "Atok": "LES001"}`
-}
 
 // Refresh will refresh an Access Token (ATok)
 func Refresh(p martini.Params) string {
