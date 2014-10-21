@@ -54,7 +54,6 @@ func AppEngine(c martini.Context, r *http.Request) {
 func init() {
 	m := martini.Classic()
 	m.Use(AppEngine)
-	m.Use(haveCerts)
 
 	log.Print("b4 things")
 
