@@ -1,0 +1,6 @@
+queue:
+- name: abelana-in
+  mode: pull
+  acl:
+  - user_email: campoy@google.com
+  - writer_email: abelana-222@appspot.gserviceaccount.com

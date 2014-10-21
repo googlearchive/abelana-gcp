@@ -17,8 +17,8 @@ dispatch:
 #  - url: "*/management/*"
 #    module: management
 #    
-#  - url: "*/notice/*"
-#    module: notice
+  - url: "*/notice/*"
+    module: notice
 #
 #  - url: "*/timeline/*"
 #    module: timeline
@@ -28,4 +28,6 @@ dispatch:
 
   - url: "*/_ah/spi/*"     # TODO -- be more specific here.
     module: endpoints
-    
+  
+  - url: "*/google6babd16c2f1c225d.html"
+    module: ownership
