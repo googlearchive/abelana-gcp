@@ -35,6 +35,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		c.Errorf("add task to queue: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	fmt.Fprintln(w, "OK")
