@@ -1,0 +1,32 @@
+application: abelana-222
+
+dispatch:
+  - url: "*/favicon.ico"
+    module: default
+
+  - url: "abelana-222.appspot.com/"
+    module: default
+
+  - url: "*/login/*"
+    module: "endpoints"
+
+  - url: "*/import/*"
+    module: "endpoints"
+
+  - url: "*/user/*"
+    module: "endpoints"
+
+  - url: "*/friend/*"
+    module: "endpoints"
+
+  - url: "*/timeline/*"
+    module: "endpoints"
+
+  - url: "*/profile/*"
+    module: "endpoints"
+
+  - url: "*/device/*"
+    module: "endpoints"
+
+  - url: "*/photo/*"
+    module: "endpoints"
