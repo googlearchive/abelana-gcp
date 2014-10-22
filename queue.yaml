@@ -1,6 +1,7 @@
 queue:
-- name: abelana-in
-  mode: pull
-  acl:
-  - user_email: campoy@google.com
-  - writer_email: abelana-222@appspot.gserviceaccount.com
+- name: new-images
+  rate: 20/s
+#  retry_parameters:
+#    min_backoff_seconds: 10
+#    max_backoff_seconds: 200
+#    max_doublings: 0
