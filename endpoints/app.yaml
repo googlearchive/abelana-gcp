@@ -17,6 +17,11 @@ handlers:
 
 # Make sure our requests make it to our app
 
+  - url: /photopush/.*
+    script: _go_app
+    secure: always
+#    login: admin
+
   - url: /_ah/spi/.*
     script: _go_app
     secure: always

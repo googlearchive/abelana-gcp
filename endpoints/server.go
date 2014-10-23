@@ -1,22 +1,33 @@
-package abelanaEndpoints
+// Copyright 2014 Google Inc. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package abelana
 
 import (
 	//    "fmt"
 
 	"encoding/json"
-	"log"
 	"net/http"
 	"time"
+
+	"appengine/user"
 
 	"appengine"
 	//    "appengine/datastore"
 	"github.com/go-martini/martini"
 	// "github.com/garyburd/redigo/redis"
 )
-
-// The initial version of this will provide stubs for everything.  If there are changes, then
-// be sure to get the Android app updated.  We are trying to put this together so that we can later
-// refactor into several modules.
 
 // Comment holds all comments
 type Comment struct {
@@ -26,15 +37,16 @@ type Comment struct {
 
 // TLEntry holds timeline entries
 type TLEntry struct {
-	Date    time.Time
-	UserID  string
-	PhotoID string
-	Likes   int
+	Created int64  `json:"created"`
+	UserID  string `json:"userid"`
+	PhotoID string `json:"photoid"`
+	Likes   int    `json:"likes"`
 }
 
+// Timeline the data the client sees.
 type Timeline struct {
-	Status  string
-	Entries []TLEntry
+	Kind    string    `json:"kind"`
+	Entries []TLEntry `json:"entries"`
 }
 
 // Friend holds information about our friends
@@ -47,6 +59,7 @@ type Friend struct {
 	ShareFrom bool
 }
 
+// AppEngine middleware inserts a context where it's needed.
 func AppEngine(c martini.Context, r *http.Request) {
 	c.MapTo(appengine.NewContext(r), (*appengine.Context)(nil))
 }
@@ -55,44 +68,46 @@ func init() {
 	m := martini.Classic()
 	m.Use(AppEngine)
 
-	log.Print("b4 things")
-
-	m.Get("/login/:gittok", Login)
+	m.Get("/user/:gittok/login/:displayName/:photoUrl", Login)
+	m.Get("/user/:gittok/login", Login)
 
 	m.Get("/user/:atok/refresh", AtokAuth, Refresh)
 	m.Delete("/user/:atok", AtokAuth, Wipeout)
 	m.Post("/user/:atok/facebook/:fbkey", AtokAuth, Import)
 	m.Post("/user/:atok/plus/:plkey", AtokAuth, Import)
 	m.Post("/user/:atok/yahoo/:ykey", AtokAuth, Import)
-	m.Get("/user/:atok/friends/", AtokAuth, GetFriendsList)
 	m.Get("/user/:atok/photo", AtokAuth, GetUserPhoto)
-	m.Put("/user/:atok/friends/:friendid", AtokAuth, AddFriend)
 
-	m.Get("/friend/:atok/:friendid", AtokAuth, GetFriend)
+	m.Get("/user/:atok/friend", AtokAuth, GetFriendsList)
+	m.Put("/user/:atok/friend/:friendid", AtokAuth, AddFriend)
+	m.Get("/user/:atok/friend/:friendid", AtokAuth, GetFriend)
 
-	m.Put("/device/:atok/:regid", AtokAuth, Register)
-	m.Delete("/device/:atok/:regid", AtokAuth, Unregister)
+	m.Put("/user/atok/device/:regid", AtokAuth, Register)
+	m.Delete("/user/:atok/device/:regid", AtokAuth, Unregister)
 
-	m.Get("/timeline/:atok/:lastid", AtokAuth, GetTimeLine)
-	m.Get("/profile/:atok/:lastid", AtokAuth, GetMyProfile)
-	m.Get("/profile/:atok/:userid/:lastid", AtokAuth, GetFriendsProfile)
+	m.Get("/user/:atok/timeline/:lastid", AtokAuth, GetTimeLine)
+	m.Get("/user/:atok/profile/:lastid", AtokAuth, GetMyProfile)
+	m.Get("/user/:atok/friend/:friendid/profile/:lastid", AtokAuth, GetFriendsProfile)
 
 	m.Post("/photo/:atok/:photoid/comment", AtokAuth, SetPhotoComments)
 	m.Put("/photo/:atok/:photoid/like", AtokAuth, Like)
 	m.Delete("/photo/:atok/:photoid/like", AtokAuth, Unlike)
 	m.Get("/photo/:atok/:photoid/comments", AtokAuth, GetComments)
 
+	m.Post("/photopush/:superid", PostPhoto)
+
 	tokenInit()
 
 	http.Handle("/", m)
 }
 
+// Ok simple reply for string versions
 func Ok() string {
-	return `{"Status": "Ok"}`
+	return `ok`
 }
 
-// replyJson Given an object, convert to JSON and reply with it
-func replyJson(w http.ResponseWriter, v interface{}) {
+// replyJSON Given an object, convert to JSON and reply with it
+func replyJSON(w http.ResponseWriter, v interface{}) {
 	b, err := json.Marshal(v)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -112,49 +127,50 @@ func replyJson(w http.ResponseWriter, v interface{}) {
 
 // GetTimeLine - get the timeline for the user (token) : TlResp
 func GetTimeLine(p martini.Params, w http.ResponseWriter, req *http.Request) {
+	t := time.Now().Unix()
 	timeline := []TLEntry{
-		TLEntry{time.Now(), "00001", "0001", 1},
-		TLEntry{time.Now(), "00001", "0002", 99},
-		TLEntry{time.Now(), "00001", "0003", 0},
-		TLEntry{time.Now(), "00001", "0004", 3},
-		TLEntry{time.Now(), "00001", "0005", 1},
-		TLEntry{time.Now(), "00001", "0006", 99},
-		TLEntry{time.Now(), "00001", "0007", 0},
-		TLEntry{time.Now(), "00001", "0008", 3},
-		TLEntry{time.Now(), "00001", "0009", 1},
-		TLEntry{time.Now(), "00001", "0010", 99},
-		TLEntry{time.Now(), "00001", "0011", 0},
-		TLEntry{time.Now(), "00001", "0004", 3},
-		TLEntry{time.Now(), "00001", "0001", 1},
-		TLEntry{time.Now(), "00001", "0002", 99},
-		TLEntry{time.Now(), "00001", "0003", 0},
-		TLEntry{time.Now(), "00001", "0005", 3},
-		TLEntry{time.Now(), "00001", "0007", 1},
-		TLEntry{time.Now(), "00001", "0006", 99},
-		TLEntry{time.Now(), "00001", "0011", 0},
-		TLEntry{time.Now(), "00001", "0009", 3},
-		TLEntry{time.Now(), "00001", "0002", 99},
-		TLEntry{time.Now(), "00001", "0003", 0},
-		TLEntry{time.Now(), "00001", "0004", 3},
-		TLEntry{time.Now(), "00001", "0005", 1},
-		TLEntry{time.Now(), "00001", "0006", 99},
-		TLEntry{time.Now(), "00001", "0007", 0},
-		TLEntry{time.Now(), "00001", "0008", 3},
-		TLEntry{time.Now(), "00001", "0009", 1},
-		TLEntry{time.Now(), "00001", "0010", 99},
-		TLEntry{time.Now(), "00001", "0011", 0},
-		TLEntry{time.Now(), "00001", "0004", 3},
-		TLEntry{time.Now(), "00001", "0001", 1},
-		TLEntry{time.Now(), "00001", "0002", 99},
-		TLEntry{time.Now(), "00001", "0003", 0},
-		TLEntry{time.Now(), "00001", "0005", 3},
-		TLEntry{time.Now(), "00001", "0007", 1},
-		TLEntry{time.Now(), "00001", "0006", 99},
-		TLEntry{time.Now(), "00001", "0011", 0},
-		TLEntry{time.Now(), "00001", "0009", 3},
-		TLEntry{time.Now(), "00001", "0005", 21}}
-	tl := &Timeline{"Ok", timeline}
-	replyJson(w, tl)
+		TLEntry{t - 200, "00001", "0001", 1},
+		TLEntry{t - 1000, "00001", "0002", 99},
+		TLEntry{t - 2500, "00001", "0003", 0},
+		TLEntry{t - 6040, "00001", "0004", 3},
+		TLEntry{t - 7500, "00001", "0005", 1},
+		TLEntry{t - 9300, "00001", "0006", 99},
+		TLEntry{t - 10200, "00001", "0007", 0},
+		TLEntry{t - 47003, "00001", "0008", 3},
+		TLEntry{t - 53002, "00001", "0009", 1},
+		TLEntry{t - 54323, "00001", "0010", 99},
+		TLEntry{t - 56112, "00001", "0011", 0},
+		TLEntry{t - 58243, "00001", "0004", 3},
+		TLEntry{t - 80201, "00001", "0001", 1},
+		TLEntry{t - 80500, "00001", "0002", 99},
+		TLEntry{t - 81200, "00001", "0003", 0},
+		TLEntry{t - 89302, "00001", "0005", 3},
+		TLEntry{t - 91200, "00001", "0007", 1},
+		TLEntry{t - 92343, "00001", "0006", 99},
+		TLEntry{t - 93233, "00001", "0011", 0},
+		TLEntry{t - 94322, "00001", "0009", 3},
+		TLEntry{t - 95323, "00001", "0002", 99},
+		TLEntry{t - 96734, "00001", "0003", 0},
+		TLEntry{t - 98033, "00001", "0004", 3},
+		TLEntry{t - 99334, "00001", "0005", 1},
+		TLEntry{t - 99993, "00001", "0006", 99},
+		TLEntry{t - 102304, "00001", "0007", 0},
+		TLEntry{t - 102750, "00001", "0008", 3},
+		TLEntry{t - 104333, "00001", "0009", 1},
+		TLEntry{t - 105323, "00001", "0010", 99},
+		TLEntry{t - 107323, "00001", "0011", 0},
+		TLEntry{t - 109323, "00001", "0004", 3},
+		TLEntry{t - 110000, "00001", "0001", 1},
+		TLEntry{t - 110133, "00001", "0002", 99},
+		TLEntry{t - 113444, "00001", "0003", 0},
+		TLEntry{t - 122433, "00001", "0005", 3},
+		TLEntry{t - 125320, "00001", "0007", 1},
+		TLEntry{t - 125325, "00001", "0006", 99},
+		TLEntry{t - 127555, "00001", "0011", 0},
+		TLEntry{t - 128333, "00001", "0009", 3},
+		TLEntry{t - 173404, "00001", "0005", 21}}
+	tl := &Timeline{"abelana#timeline", timeline}
+	replyJSON(w, tl)
 }
 
 // GetMyProfile - Get my entries only (token) : TlResp
@@ -167,7 +183,28 @@ func GetFriendsProfile(p martini.Params) string {
 	return Ok()
 }
 
+// GetUserPhoto Will return the user photo It should just be userID.webm
+// (ie, we won't be needing this function)
 func GetUserPhoto(p martini.Params) string {
+	return Ok()
+}
+
+// PostPhoto lets us know that we have a photo, we then tell both DataStore and Redis
+func PostPhoto(cx appengine.Context, p martini.Params, w http.ResponseWriter, rq *http.Request) string {
+	cx.Infof("PostPhoto %v", p["superid"])
+	u, err := user.CurrentOAuth(cx, "")
+	cx.Infof("pp %v", u)
+	if err != nil {
+		cx.Infof("Oauth unauthorized %v", err)
+		cx.Infof(" rq %v", rq.Header)
+		http.Error(w, "OAuth Authorization header required", http.StatusUnauthorized)
+		return ""
+	}
+
+	// if !u.Admin {
+	// 	http.Error(w, "Admin login only", http.StatusUnauthorized)
+	// 	return ""
+	// }
 	return Ok()
 }
 
@@ -230,6 +267,7 @@ func Unlike(p martini.Params) string {
 	return Ok()
 }
 
+// GetComments will get the comments given a photoid
 func GetComments(p martini.Params) string {
 	return `{"Status": "Ok", "Comments":[]}`
 }

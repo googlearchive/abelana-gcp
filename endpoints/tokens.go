@@ -1,6 +1,20 @@
-// Package token is a set of utilities to validate our GitKit and Access Tokens.  For now, we are
+// Copyright 2014 Google Inc. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package abelana is a set of utilities to validate our GitKit and Access Tokens.  For now, we are
 // providing our own Access Tokens, later, we will use GitKit's tokens when they become available.
-package abelanaEndpoints
+package abelana
 
 import (
 	"crypto/x509"
@@ -27,6 +41,12 @@ const enableBackdoor = true // FIXME(lesv) TEMPORARY BACKDOOR ACCESS
 var gclient *gitkit.Client
 var serverKey []byte
 var publicCerts []*x509.Certificate
+
+// ATOKJson is the json message for an Access Token
+type ATOKJson struct {
+	Kind string `json:"kind"`
+	Atok string `json:"atok"`
+}
 
 // tokenInit will setup to use GitKit
 func tokenInit() {
@@ -70,22 +90,23 @@ func haveCerts(cx appengine.Context) {
 	}
 }
 
-type TokenResponse struct {
-	Status string
-	ATok   string
-}
-
-// GitAuth - see if the token is valid
+// Login - see if the token is valid
 func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	var token *gitkit.Token
 	var err error
 
 	haveCerts(cx)
+	dn, err := decodeSegment(p["displayName"])
+	pu, err := decodeSegment(p["photoUrl"])
+	dName := string(dn)
+	photoURL := string(pu)
 	if enableBackdoor && p["gittok"] == "Les" {
 		err = nil
 		token = &gitkit.Token{"Magic", "**AUDIENCE**", time.Now().UTC(),
 			time.Now().UTC().Add(1 * time.Hour), "00001", "lesv@abelana-app.com",
 			true, "abelana-app.com", "LES001"}
+		dName = "Les Vogel"
+		photoURL = "https://lh4.googleusercontent.com/-Nt9PfYHmQeI/AAAAAAAAAAI/AAAAAAAAANI/2mbohwDXFKI/photo.jpg?sz=50"
 	} else {
 		token, err = VerifyToken(p["gittok"]) // TODO FIXME should be gitKit.ValidateToken
 		if err != nil {
@@ -94,7 +115,6 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 		}
 		// TODO verify the Audience is correct
 	}
-	cx.Debugf("Login.token %v", token)
 
 	at := &AccToken{token.LocalID, string(serverKey), time.Now().UTC().Unix(),
 		time.Now().UTC().Add(120 * 24 * time.Hour).Unix(), token.Email}
@@ -115,10 +135,17 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	}
 	parts[2] = base64.URLEncoding.EncodeToString(sig)
 
-	replyJson(w, &TokenResponse{"Ok", strings.Join(parts, ".")})
+	replyJSON(w, &ATOKJson{"abelana#accessToken", strings.Join(parts, ".")})
 
 	// TODO - Look us up in datastore, add us to memcache, and be happy.
 	// We may also want to create us in Datastore
+	user, err := FindUser(cx, at.UserID)
+	if err != nil {
+		// Not found, must create
+		user = &User{at.UserID, "firstName", "lastName", dName, token.Email, make([]string, 0, 100)}
+		CreateUser(cx, user)
+		CopyUserPhoto(cx, photoURL, at.UserID)
+	}
 }
 
 /**
@@ -126,21 +153,25 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
  * this functality is available in the Google Idenity Toolkit as a standard feature.
  * Once AT's become standard we will switch use them and void our code.
  **/
+
+// AccToken is what we pass to our client, would rather not have the password here as it will
+// go away when Idenitty Toolkit supports access tokens.
 type AccToken struct {
 	UserID string
-	HalfPW string
+	HalfPW string // TODO FIXME
 	Iat    int64
 	Exp    int64
 	Email  string
 }
 
+// Access lets us know if we need another
 type Access interface {
 	Expired() bool
 	Mail() string
-	Id() string
+	ID() string
 }
 
-// Expires tells us if we have a valid AuthToken
+// Expired tells us if we have a valid AuthToken
 func (at *AccToken) Expired() bool {
 	return time.Now().UTC().After(time.Unix(at.Exp, 0))
 }
@@ -150,8 +181,8 @@ func (at *AccToken) Mail() string {
 	return at.Email
 }
 
-// Id accessor func for UserID
-func (at *AccToken) Id() string {
+// ID accessor func for UserID
+func (at *AccToken) ID() string {
 	return at.UserID
 }
 
