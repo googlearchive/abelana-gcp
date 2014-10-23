@@ -35,6 +35,24 @@ func bucketNotificationHandler(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("invalid notification: %v", err)
 	}
 
+	// handle duplicated notifications, drop keys after 5 minutes
+	item := &memcache.Item{
+		Key:        "notify:" + n.Bucket + "/" + n.Name,
+		Expiration: 5 * time.Minute,
+		Value:      []byte{},
+	}
+	switch err := memcache.Add(c, item); err {
+	case memcache.ErrNotStored:
+		// the key existed already, dup notification
+		c.Infof("duplicated notification for %q", item.Key)
+		return nil
+	case nil:
+		c.Infof("first time notification for %q", item.Key)
+		// first time we see this key
+	default:
+		c.Errorf("add notification to memcache: %v", err)
+	}
+
 	// Add a new task to the queue
 	t := taskqueue.NewPOSTTask("/notice/incoming-image", map[string][]string{
 		"bucket": {n.Bucket},
@@ -57,10 +75,15 @@ func incomingImageHandler(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	client := http.Client{Transport: &urlfetch.Transport{
+	// TODO: add TLS so the backend can authenticate the request.
+	// The token sent to the backend is forwarded to the photopush module,
+	// we need the userinfo.email scope to be able to verify the token origin.
+	config := google.NewAppEngineConfig(c, "https://www.googleapis.com/auth/userinfo.email")
+	config.Transport = &urlfetch.Transport{
 		Context: c,
 		AllowInvalidServerCertificate: true,
-	}}
+	}
+	client := http.Client{Transport: config.NewTransport()}
 
 	r.ParseForm()
 	res, err := client.PostForm(fmt.Sprintf("https://%s:10443", ip), r.Form)

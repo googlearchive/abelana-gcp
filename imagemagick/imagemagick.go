@@ -1,20 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
+	"net/http/httputil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"code.google.com/p/go.net/context"
+	auth "code.google.com/p/google-api-go-client/oauth2/v2"
 
 	"github.com/golang/oauth2/google"
 	"google.golang.org/cloud"
@@ -26,11 +27,14 @@ const (
 	outputBucket  = "abelana"
 	uploadRetries = 5
 	listenAddress = "0.0.0.0:10443"
+	pushURL       = "https://endpoints-dot-abelana-222.appspot.com/photopush/"
+	authEmail     = "abelana-222@appspot.gserviceaccount.com"
 )
 
 var (
 	certPath = flag.String("cert", "cert.pem", "path to the certificate file")
 	keyPath  = flag.String("key", "key.pem", "path to the key file")
+	debug    = flag.Int("debug", 0, "debug logging level")
 
 	client *http.Client
 
@@ -49,9 +53,15 @@ var (
 )
 
 func main() {
+	flag.Parse()
+
 	// Initialize API clients
 	conf := google.NewComputeEngineConfig("")
-	client = &http.Client{Transport: conf.NewTransport()}
+	var transport http.RoundTripper = conf.NewTransport()
+	if *debug > 0 {
+		transport = loggingTransport{transport, *debug > 1}
+	}
+	client = &http.Client{Transport: transport}
 
 	http.HandleFunc("/", handler)
 	err := http.ListenAndServeTLS(listenAddress, "cert.pem", "key.pem", nil)
@@ -67,13 +77,44 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	start := time.Now()
+	token := r.Header.Get("Authorization")
+	if ok, err := authorized(token); !ok {
+		if err != nil {
+			log.Printf("authorize: %v", err)
+		}
+		http.Error(w, "you're not authorized", http.StatusForbidden)
+		return
+	}
+
 	err := processImage(cloud.NewContext(projectID, client), bucket, name)
 	if err != nil {
 		log.Println(err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-	log.Printf("image processed in %v", time.Since(start))
+
+	if err := notifyDone(name, token); err != nil {
+		log.Println(err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func authorized(token string) (bool, error) {
+	if fs := strings.Fields(token); len(fs) == 2 && fs[0] == "Bearer" {
+		token = fs[1]
+	} else {
+		return false, nil
+	}
+
+	svc, err := auth.New(http.DefaultClient)
+	if err != nil {
+		return false, err
+	}
+	tok, err := svc.Tokeninfo().Access_token(token).Do()
+	if err != nil {
+		return false, err
+	}
+
+	return tok.Email == authEmail, nil
 }
 
 func processImage(ctx context.Context, bucket, name string) error {
@@ -119,14 +160,6 @@ func processImage(ctx context.Context, bucket, name string) error {
 		}
 	}
 
-	u, _ := url.Parse("https://endpoints-dot-abelana-222.appspot.com/photopush/" + name)
-	res, err := client.Do(&http.Request{Method: "PUT", URL: u})
-	if err != nil {
-		return fmt.Errorf("photo push: %v", err)
-	}
-	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("photo push status: %v", res.Status)
-	}
 	return nil
 }
 
@@ -169,4 +202,46 @@ func uploadImage(ctx context.Context, bucket, name, path string) error {
 
 	_, err = w.Object()
 	return err
+}
+
+func notifyDone(name, token string) error {
+	req, err := http.NewRequest("POST", pushURL+name, &bytes.Buffer{})
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", token)
+	res, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("photo push: %v", err)
+	}
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("photo push status: %v", res.Status)
+	}
+	return nil
+}
+
+type loggingTransport struct {
+	rt   http.RoundTripper
+	body bool
+}
+
+func (l loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if b, err := httputil.DumpRequest(req, l.body); err != nil {
+		log.Printf("dump request: %v", err)
+	} else {
+		log.Printf("%s", b)
+	}
+
+	res, err := l.rt.RoundTrip(req)
+	if err != nil {
+		log.Printf("roundtrip error: %v", err)
+		return res, err
+	}
+
+	if b, err := httputil.DumpResponse(res, l.body); err != nil {
+		log.Printf("dump response: %v", err)
+	} else {
+		log.Printf("%s", b)
+	}
+	return res, err
 }
