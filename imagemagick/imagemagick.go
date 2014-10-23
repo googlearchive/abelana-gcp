@@ -36,7 +36,7 @@ var (
 	keyPath  = flag.String("key", "key.pem", "path to the key file")
 	debug    = flag.Int("debug", 0, "debug logging level")
 
-	client *http.Client
+	ctx context.Context
 
 	// map with the suffixes and sizes to generate
 	sizes = map[string]string{
@@ -55,13 +55,13 @@ var (
 func main() {
 	flag.Parse()
 
-	// Initialize API clients
+	// Initialize API context
 	conf := google.NewComputeEngineConfig("")
 	var transport http.RoundTripper = conf.NewTransport()
 	if *debug > 0 {
 		transport = loggingTransport{transport, *debug > 1}
 	}
-	client = &http.Client{Transport: transport}
+	ctx = cloud.NewContext(projectID, &http.Client{Transport: transport})
 
 	http.HandleFunc("/", handler)
 	err := http.ListenAndServeTLS(listenAddress, "cert.pem", "key.pem", nil)
@@ -86,8 +86,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := processImage(cloud.NewContext(projectID, client), bucket, name)
+	err := processImage(ctx, bucket, name)
 	if err != nil {
+		// TODO: should this remove uploaded images?
 		log.Println(err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -123,12 +124,7 @@ func processImage(ctx context.Context, bucket, name string) error {
 		return fmt.Errorf("download: %v", err)
 	}
 
-	type partial struct {
-		name string
-		err  error
-	}
-	partials := make(chan partial, len(sizes))
-
+	errc := make(chan error, len(sizes))
 	for suffix, size := range sizes {
 		go func(suffix, size string) {
 			target, ext := name, ""
@@ -137,25 +133,20 @@ func processImage(ctx context.Context, bucket, name string) error {
 			}
 			target = fmt.Sprintf("%s_%s%s", target, suffix, ext)
 
-			// convert image
 			tmp := filepath.Join(os.TempDir(), target)
 			cmd := exec.Command("convert", path, "-adaptive-resize", size, tmp)
 			out, err := cmd.CombinedOutput()
 			if err != nil {
-				partials <- partial{err: fmt.Errorf("convert: %v\n%s", err, out)}
+				errc <- fmt.Errorf("convert: %v\n%s", err, out)
 				return
 			}
-			partials <- partial{name: target}
+			errc <- uploadImage(ctx, outputBucket, name, tmp)
 		}(suffix, size)
 	}
 
+	// wait for all the uploads to finish
 	for _ = range sizes {
-		p := <-partials
-		if p.err != nil {
-			return p.err
-		}
-		err := uploadImage(ctx, outputBucket, p.name, filepath.Join(os.TempDir(), p.name))
-		if err != nil {
+		if err := <-errc; err != nil {
 			return err
 		}
 	}
@@ -210,6 +201,12 @@ func notifyDone(name, token string) error {
 		return err
 	}
 	req.Header.Set("Authorization", token)
+
+	client := http.Client{Transport: http.DefaultTransport}
+	if *debug > 0 {
+		client.Transport = loggingTransport{client.Transport, *debug > 1}
+	}
+
 	res, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("photo push: %v", err)
