@@ -1,0 +1,236 @@
+package main
+
+import (
+	"encoding/base64"
+	"flag"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"net/http/httputil"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/golang/oauth2/google"
+
+	"code.google.com/p/google-api-go-client/storage/v1beta2"
+	"code.google.com/p/google-api-go-client/taskqueue/v1beta2"
+)
+
+const (
+	projectName    = "s~abelana-222"
+	queueName      = "abelana-in"
+	outputBucket   = "abelana"
+	leaseTimeInSec = 5
+	uploadRetries  = 10
+)
+
+var keyPath = flag.String("key", "key.json", "path to a json encoded key file")
+
+var (
+	client  *http.Client
+	objects *storage.ObjectsService
+	tasks   *taskqueue.TasksService
+)
+
+func main() {
+	// Initialize API clients
+	conf, err := google.NewServiceAccountJSONConfig(*keyPath,
+		taskqueue.TaskqueueConsumerScope, storage.DevstorageRead_writeScope)
+	if err != nil {
+		log.Fatalf("create service account: %v", err)
+	}
+	client = &http.Client{Transport: conf.NewTransport()}
+	tq, err := taskqueue.New(client)
+	if err != nil {
+		log.Fatalf("new taskqueue client: %v", err)
+	}
+	tasks = tq.Tasks
+	objs, err := storage.New(client)
+	if err != nil {
+		log.Fatalf("new storage client: %v", err)
+	}
+	objects = objs.Objects
+
+	// TODO: use PUSH queue instead?
+	for _ = range time.Tick(5 * time.Second) {
+		// get a new task
+		t, err := tasks.Lease(projectName, queueName, 1, leaseTimeInSec).Do()
+		if err != nil {
+			log.Printf("lease tasks: %v", err)
+			continue
+		}
+
+		for _, t := range t.Items {
+			bucket, name, err := decodePayload(t.PayloadBase64)
+			if err != nil {
+				log.Println("invalid payload: %v", err)
+				continue
+			}
+
+			_, _ = bucket, name
+			err = processImage(bucket, name)
+			if err != nil {
+				log.Printf("process image: %v", err)
+				continue
+			}
+
+			err = tasks.Delete(projectName, queueName, t.Id).Do()
+			if err != nil {
+				log.Printf("delete task %v: %v", t.Id, err)
+			}
+		}
+	}
+}
+
+func processImage(bucket, name string) error {
+	path, err := downloadImage(bucket, name)
+	if err != nil {
+		return err
+	}
+
+	for _, s := range sizes {
+		// convert image
+		tmp, err := ioutil.TempFile("", "")
+		if err != nil {
+			log.Printf("create target file: %v", err)
+			continue
+		}
+		tmp.Close()
+
+		size := fmt.Sprintf("%vx%v", s.width, s.height)
+		cmd := exec.Command("convert", path, "-adaptive-resize", size, tmp.Name())
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Printf("convert: %v\n%s", err, out)
+		}
+
+		// compute target name
+		target, ext := name, ""
+		if ps := strings.SplitN(target, ".", 2); len(ps) == 2 {
+			target, ext = ps[0], "."+ps[1]
+		}
+		target = fmt.Sprintf("%s_%s_%s%s", target, size, s.suffix, ext)
+
+		err = retry(uploadRetries, func() error {
+			return uploadImage(outputBucket, target, tmp.Name())
+		})
+		if err != nil {
+			log.Printf("upload %v failed %v times: %v", target, uploadRetries, err)
+		}
+	}
+
+	return nil
+}
+
+func retry(n int, f func() error) error {
+	err := f()
+	for i := 1; err != nil && i < n; i++ {
+		err = f()
+	}
+	return err
+}
+
+func downloadImage(bucket, name string) (string, error) {
+	obj, err := objects.Get(bucket, name).Do()
+	if err != nil {
+		return "", fmt.Errorf("get gs://%v/%v: %v", bucket, name, err)
+	}
+
+	res, err := client.Get(obj.MediaLink)
+	if err != nil {
+		return "", fmt.Errorf("fetch %q: %v", obj.MediaLink, err)
+	}
+	if res.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("fetch %q: %v", obj.MediaLink, res.Status)
+	}
+
+	tmp, err := ioutil.TempFile("", "")
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %v", err)
+	}
+	defer tmp.Close()
+	_, err = io.Copy(tmp, res.Body)
+	if err != nil {
+		return "", fmt.Errorf("copy image to temp file: %v", err)
+	}
+	return tmp.Name(), nil
+}
+
+func uploadImage(bucket, name, path string) error {
+	// Insert the result into the output bucket
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open %q: %v", path, err)
+	}
+	defer file.Close()
+	_, err = objects.Insert(bucket, &storage.Object{Name: name}).Media(file).Do()
+	if err != nil {
+		return fmt.Errorf("upload %q as %s/%s: %v", path, bucket, name, err)
+	}
+	return nil
+}
+
+func decodePayload(s string) (bucket, name string, err error) {
+	p, err := ioutil.ReadAll(
+		base64.NewDecoder(base64.StdEncoding,
+			strings.NewReader(s)))
+	if err != nil {
+		return "", "", err
+	}
+
+	ps := strings.SplitN(string(p), "/", 2)
+	if len(ps) != 2 {
+		return "", "", fmt.Errorf("invalid name format: %q", p)
+	}
+	return ps[0], ps[1], nil
+}
+
+var sizes = []struct {
+	phone  string
+	width  int
+	height int
+	suffix string
+}{
+	{"Nexus S", 480, 800, "a"},
+	{"Nexus 4", 768, 768, "b"},
+	{"Nexus 5", 1080, 1080, "c"},
+	{"Nexus 6", 1440, 1440, "d"},
+	{"Nexus 7", 1200, 1200, "e"},
+	{"Nexus 9", 1536, 1536, "f"},
+	{"Droid Maxx", 720, 720, "g"},
+	{"Moto X", 1080, 1080, "c"},
+	{"iPhone 4", 640, 640, "h"},
+	{"iPhone 5", 640, 640, "h"},
+	{"iPhone 6", 750, 750, "i"},
+	{"iPhone 6 Plus", 1080, 1080, "c"},
+}
+
+type loggingTransport struct {
+	rt   http.RoundTripper
+	body bool
+}
+
+func (l loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if b, err := httputil.DumpRequest(req, l.body); err != nil {
+		log.Printf("dump request: %v", err)
+	} else {
+		log.Printf("%s", b)
+	}
+
+	res, err := l.rt.RoundTrip(req)
+	if err != nil {
+		log.Printf("roundtrip error: %v", err)
+		return res, err
+	}
+
+	if b, err := httputil.DumpResponse(res, l.body); err != nil {
+		log.Printf("dump response: %v", err)
+	} else {
+		log.Printf("%s", b)
+	}
+	return res, err
+}
