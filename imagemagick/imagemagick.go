@@ -1,17 +1,18 @@
 package main
 
 import (
-	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"code.google.com/p/go.net/context"
 
@@ -66,12 +67,13 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := cloud.NewContext(projectID, client)
-	err := processImage(ctx, bucket, name)
+	start := time.Now()
+	err := processImage(cloud.NewContext(projectID, client), bucket, name)
 	if err != nil {
 		log.Println(err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+	log.Printf("image processed in %v", time.Since(start))
 }
 
 func processImage(ctx context.Context, bucket, name string) error {
@@ -80,44 +82,55 @@ func processImage(ctx context.Context, bucket, name string) error {
 		return fmt.Errorf("download: %v", err)
 	}
 
+	type partial struct {
+		name string
+		err  error
+	}
+	partials := make(chan partial, len(sizes))
+
 	for suffix, size := range sizes {
 		go func(suffix, size string) {
-			log.Println("process size", size)
-			// convert image
-			tmp, err := ioutil.TempFile("", "")
-			if err != nil {
-				log.Printf("create target file: %v", err)
-				return
-			}
-			tmp.Close()
-
-			cmd := exec.Command("convert", path, "-adaptive-resize", size, tmp.Name())
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				log.Printf("convert: %v\n%s", err, out)
-			}
-
-			// compute target name
 			target, ext := name, ""
 			if ps := strings.SplitN(target, ".", 2); len(ps) == 2 {
 				target, ext = ps[0], "."+ps[1]
 			}
-			target = fmt.Sprintf("%s_%s_%s%s", target, size, suffix, ext)
+			target = fmt.Sprintf("%s_%s%s", target, suffix, ext)
 
-			err = retry(uploadRetries, func() error {
-				return uploadImage(ctx, outputBucket, target, tmp.Name())
-			})
+			// convert image
+			tmp := filepath.Join(os.TempDir(), target)
+			cmd := exec.Command("convert", path, "-adaptive-resize", size, tmp)
+			out, err := cmd.CombinedOutput()
 			if err != nil {
-				log.Printf("upload %v failed %v times: %v", target, uploadRetries, err)
+				partials <- partial{err: fmt.Errorf("convert: %v\n%s", err, out)}
+				return
 			}
+			partials <- partial{name: target}
 		}(suffix, size)
 	}
 
+	for _ = range sizes {
+		p := <-partials
+		if p.err != nil {
+			return p.err
+		}
+		err := uploadImage(ctx, outputBucket, p.name, filepath.Join(os.TempDir(), p.name))
+		if err != nil {
+			return err
+		}
+	}
+
+	u, _ := url.Parse("https://endpoints-dot-abelana-222.appspot.com/photopush/" + name)
+	res, err := client.Do(&http.Request{Method: "PUT", URL: u})
+	if err != nil {
+		return fmt.Errorf("photo push: %v", err)
+	}
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("photo push status: %v", res.Status)
+	}
 	return nil
 }
 
 func downloadImage(ctx context.Context, bucket, name string) (string, error) {
-	log.Println("download", bucket, name)
 	r, err := storage.NewReader(ctx, bucket, name)
 	if err != nil {
 		return "", fmt.Errorf("storage reader: %v", err)
@@ -138,7 +151,6 @@ func downloadImage(ctx context.Context, bucket, name string) (string, error) {
 }
 
 func uploadImage(ctx context.Context, bucket, name, path string) error {
-	log.Println("upload", bucket, name)
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open %q: %v", path, err)
@@ -151,58 +163,10 @@ func uploadImage(ctx context.Context, bucket, name, path string) error {
 		return err
 	}
 
-	// block until the write operation is done
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("close object writer: %v", err)
+	}
+
 	_, err = w.Object()
-	return err
-}
-
-func decodePayload(s string) (bucket, name string, err error) {
-	p, err := ioutil.ReadAll(
-		base64.NewDecoder(base64.StdEncoding,
-			strings.NewReader(s)))
-	if err != nil {
-		return "", "", err
-	}
-
-	ps := strings.SplitN(string(p), "/", 2)
-	if len(ps) != 2 {
-		return "", "", fmt.Errorf("invalid name format: %q", p)
-	}
-	return ps[0], ps[1], nil
-}
-
-// Utility stuff
-
-type loggingTransport struct {
-	rt   http.RoundTripper
-	body bool
-}
-
-func (l loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if b, err := httputil.DumpRequest(req, l.body); err != nil {
-		log.Printf("dump request: %v", err)
-	} else {
-		log.Printf("%s", b)
-	}
-
-	res, err := l.rt.RoundTrip(req)
-	if err != nil {
-		log.Printf("roundtrip error: %v", err)
-		return res, err
-	}
-
-	if b, err := httputil.DumpResponse(res, l.body); err != nil {
-		log.Printf("dump response: %v", err)
-	} else {
-		log.Printf("%s", b)
-	}
-	return res, err
-}
-
-func retry(n int, f func() error) error {
-	err := f()
-	for i := 1; err != nil && i < n; i++ {
-		err = f()
-	}
 	return err
 }
