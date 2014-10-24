@@ -80,7 +80,8 @@ func incomingImageHandler(w http.ResponseWriter, r *http.Request) error {
 	// we need the userinfo.email scope to be able to verify the token origin.
 	config := google.NewAppEngineConfig(c, "https://www.googleapis.com/auth/userinfo.email")
 	config.Transport = &urlfetch.Transport{
-		Context: c,
+		Context:                       c,
+		Deadline:                      time.Minute,
 		AllowInvalidServerCertificate: true,
 	}
 	client := http.Client{Transport: config.NewTransport()}

@@ -11,7 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"code.google.com/p/go.net/context"
 	auth "code.google.com/p/google-api-go-client/oauth2/v2"
@@ -28,6 +30,7 @@ const (
 	listenAddress = "0.0.0.0:10443"
 	pushURL       = "https://endpoints-dot-abelana-222.appspot.com/photopush/"
 	authEmail     = "abelana-222@appspot.gserviceaccount.com"
+	nConverters   = 25
 )
 
 var (
@@ -50,10 +53,14 @@ var (
 		"h": "640x640",
 		"i": "750x750",
 	}
+
+	converterTokens = make(chan bool, nConverters)
 )
 
 func main() {
 	flag.Parse()
+
+	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	// Initialize API context
 	conf := google.NewComputeEngineConfig("")
@@ -73,6 +80,9 @@ func main() {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() { log.Printf("handler-time: %v", time.Since(start)) }()
+
 	bucket, name := r.PostFormValue("bucket"), r.PostFormValue("name")
 	if bucket == "" || name == "" {
 		http.Error(w, "missing bucket or name", http.StatusBadRequest)
@@ -101,7 +111,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func authorized(token string) (bool, error) {
+func authorized(token string) (ok bool, err error) {
+	start := time.Now()
+	defer func() { log.Printf("authorized-time: %v %v %v", time.Since(start), ok, err) }()
+
 	if fs := strings.Fields(token); len(fs) == 2 && fs[0] == "Bearer" {
 		token = fs[1]
 	} else {
@@ -120,15 +133,21 @@ func authorized(token string) (bool, error) {
 	return tok.Email == authEmail, nil
 }
 
-func processImage(bucket, name string) error {
+func processImage(bucket, name string) (err error) {
+	start := time.Now()
+	defer func() { log.Printf("process-time: %v %v", time.Since(start), err) }()
+
 	path, err := downloadImage(bucket, name)
 	if err != nil {
 		return fmt.Errorf("download: %v", err)
 	}
 
+	timeout := make(chan bool)
+	time.AfterFunc(time.Minute, func() { close(timeout) })
+
 	errc := make(chan error, len(sizes))
-	for suffix, size := range sizes {
-		go func(suffix, size string) {
+	for suffix := range sizes {
+		go func(suffix string) {
 			target, ext := name, ""
 			if sep := strings.LastIndex(target, "."); sep >= 0 {
 				target, ext = target[:sep], target[sep:]
@@ -136,14 +155,14 @@ func processImage(bucket, name string) error {
 			target = fmt.Sprintf("%s_%s%s", target, suffix, ext)
 
 			tmp := filepath.Join(os.TempDir(), target)
-			cmd := exec.Command("convert", path, "-adaptive-resize", size, tmp)
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				errc <- fmt.Errorf("convert: %v\n%s", err, out)
-				return
+
+			// ask for permission to execute
+			if err := convert(tmp, suffix, path, timeout); err != nil {
+				errc <- err
 			}
 			errc <- uploadImage(outputBucket, target, tmp)
-		}(suffix, size)
+			log.Printf("upload-time: %v", time.Since(start))
+		}(suffix)
 	}
 
 	// wait for all the uploads to finish
@@ -155,7 +174,29 @@ func processImage(bucket, name string) error {
 	return nil
 }
 
-func downloadImage(bucket, name string) (string, error) {
+func convert(tmp, suffix, path string, timeout <-chan bool) (err error) {
+	start := time.Now()
+	defer func() { log.Printf("convert-time: %s %v %v", time.Since(start), suffix, err) }()
+
+	select {
+	case converterTokens <- true:
+		defer func() { <-converterTokens }()
+	case <-timeout:
+		return fmt.Errorf("timeout")
+	}
+
+	cmd := exec.Command("convert", path, "-adaptive-resize", sizes[suffix], tmp)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("convert: %v\n%s", err, out)
+	}
+	return nil
+}
+
+func downloadImage(bucket, name string) (path string, err error) {
+	start := time.Now()
+	defer func() { log.Printf("download-time: %v %q %v", time.Since(start), path, err) }()
+
 	r, err := storage.NewReader(ctx, bucket, name)
 	if err != nil {
 		return "", fmt.Errorf("storage reader: %v", err)
@@ -175,7 +216,12 @@ func downloadImage(bucket, name string) (string, error) {
 	return f.Name(), nil
 }
 
-func uploadImage(bucket, name, path string) error {
+func uploadImage(bucket, name, path string) (err error) {
+	start := time.Now()
+	defer func() {
+		log.Printf("upload-time: %v %q %v", time.Since(start), name, err)
+	}()
+
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open %q: %v", path, err)
@@ -196,7 +242,12 @@ func uploadImage(bucket, name, path string) error {
 	return err
 }
 
-func notifyDone(name, token string) error {
+func notifyDone(name, token string) (err error) {
+	start := time.Now()
+	defer func() {
+		log.Printf("notify-time: %v %q %v", time.Since(start), name, err)
+	}()
+
 	req, err := http.NewRequest("POST", pushURL+name, &bytes.Buffer{})
 	if err != nil {
 		return err

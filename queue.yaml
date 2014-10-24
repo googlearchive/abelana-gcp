@@ -1,6 +1,6 @@
 queue:
 - name: new-images
-  rate: 20/s
+  rate: 1/s
 #  retry_parameters:
 #    min_backoff_seconds: 10
 #    max_backoff_seconds: 200
