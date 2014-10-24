@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 	"code.google.com/p/go.net/context"
 	auth "code.google.com/p/google-api-go-client/oauth2/v2"
 
+	"github.com/campoy/httplog"
 	"github.com/golang/oauth2/google"
 	"google.golang.org/cloud"
 	"google.golang.org/cloud/storage"
@@ -25,7 +25,6 @@ import (
 const (
 	projectID     = "abelana-222"
 	outputBucket  = "abelana"
-	uploadRetries = 5
 	listenAddress = "0.0.0.0:10443"
 	pushURL       = "https://endpoints-dot-abelana-222.appspot.com/photopush/"
 	authEmail     = "abelana-222@appspot.gserviceaccount.com"
@@ -36,7 +35,8 @@ var (
 	keyPath  = flag.String("key", "key.pem", "path to the key file")
 	debug    = flag.Int("debug", 0, "debug logging level")
 
-	ctx context.Context
+	client *http.Client
+	ctx    context.Context
 
 	// map with the suffixes and sizes to generate
 	sizes = map[string]string{
@@ -59,8 +59,10 @@ func main() {
 	conf := google.NewComputeEngineConfig("")
 	var transport http.RoundTripper = conf.NewTransport()
 	if *debug > 0 {
-		transport = loggingTransport{transport, *debug > 1}
+		transport = httplog.Transport{transport, *debug > 1, log.Printf}
 	}
+	client = &http.Client{Transport: transport}
+	// NewContext modifies the original client, so passing a new one.
 	ctx = cloud.NewContext(projectID, &http.Client{Transport: transport})
 
 	http.HandleFunc("/", handler)
@@ -86,11 +88,11 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := processImage(ctx, bucket, name)
-	if err != nil {
+	if err := processImage(bucket, name); err != nil {
 		// TODO: should this remove uploaded images?
 		log.Println(err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if err := notifyDone(name, token); err != nil {
@@ -118,8 +120,8 @@ func authorized(token string) (bool, error) {
 	return tok.Email == authEmail, nil
 }
 
-func processImage(ctx context.Context, bucket, name string) error {
-	path, err := downloadImage(ctx, bucket, name)
+func processImage(bucket, name string) error {
+	path, err := downloadImage(bucket, name)
 	if err != nil {
 		return fmt.Errorf("download: %v", err)
 	}
@@ -128,8 +130,8 @@ func processImage(ctx context.Context, bucket, name string) error {
 	for suffix, size := range sizes {
 		go func(suffix, size string) {
 			target, ext := name, ""
-			if ps := strings.SplitN(target, ".", 2); len(ps) == 2 {
-				target, ext = ps[0], "."+ps[1]
+			if sep := strings.LastIndex(target, "."); sep >= 0 {
+				target, ext = target[:sep], target[sep:]
 			}
 			target = fmt.Sprintf("%s_%s%s", target, suffix, ext)
 
@@ -140,7 +142,7 @@ func processImage(ctx context.Context, bucket, name string) error {
 				errc <- fmt.Errorf("convert: %v\n%s", err, out)
 				return
 			}
-			errc <- uploadImage(ctx, outputBucket, name, tmp)
+			errc <- uploadImage(outputBucket, target, tmp)
 		}(suffix, size)
 	}
 
@@ -150,11 +152,10 @@ func processImage(ctx context.Context, bucket, name string) error {
 			return err
 		}
 	}
-
 	return nil
 }
 
-func downloadImage(ctx context.Context, bucket, name string) (string, error) {
+func downloadImage(bucket, name string) (string, error) {
 	r, err := storage.NewReader(ctx, bucket, name)
 	if err != nil {
 		return "", fmt.Errorf("storage reader: %v", err)
@@ -174,7 +175,7 @@ func downloadImage(ctx context.Context, bucket, name string) (string, error) {
 	return f.Name(), nil
 }
 
-func uploadImage(ctx context.Context, bucket, name, path string) error {
+func uploadImage(bucket, name, path string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open %q: %v", path, err)
@@ -200,11 +201,12 @@ func notifyDone(name, token string) error {
 	if err != nil {
 		return err
 	}
+
 	req.Header.Set("Authorization", token)
 
 	client := http.Client{Transport: http.DefaultTransport}
 	if *debug > 0 {
-		client.Transport = loggingTransport{client.Transport, *debug > 1}
+		client.Transport = httplog.Transport{client.Transport, *debug > 1, log.Printf}
 	}
 
 	res, err := client.Do(req)
@@ -215,30 +217,4 @@ func notifyDone(name, token string) error {
 		return fmt.Errorf("photo push status: %v", res.Status)
 	}
 	return nil
-}
-
-type loggingTransport struct {
-	rt   http.RoundTripper
-	body bool
-}
-
-func (l loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if b, err := httputil.DumpRequest(req, l.body); err != nil {
-		log.Printf("dump request: %v", err)
-	} else {
-		log.Printf("%s", b)
-	}
-
-	res, err := l.rt.RoundTrip(req)
-	if err != nil {
-		log.Printf("roundtrip error: %v", err)
-		return res, err
-	}
-
-	if b, err := httputil.DumpResponse(res, l.body); err != nil {
-		log.Printf("dump response: %v", err)
-	} else {
-		log.Printf("%s", b)
-	}
-	return res, err
 }

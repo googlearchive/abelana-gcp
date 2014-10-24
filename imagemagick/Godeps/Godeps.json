@@ -33,6 +33,10 @@
 			"Rev": "725eb0907b649c438e0e8f1601648597141fb66c"
 		},
 		{
+			"ImportPath": "github.com/campoy/httplog",
+			"Rev": "20972d7f0bcc918704c5d818f5ca9927a9ca659c"
+		},
+		{
 			"ImportPath": "github.com/golang/oauth2",
 			"Rev": "2e27b6b6cbfae950c7efb89687eb9f7976c2db17"
 		},
