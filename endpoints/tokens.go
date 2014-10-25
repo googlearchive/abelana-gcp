@@ -34,19 +34,9 @@ import (
 	"github.com/google/identity-toolkit-go-client/gitkit"
 )
 
-////////////////////////////////////////////////////////////////////
-const enableBackdoor = true // FIXME(lesv) TEMPORARY BACKDOOR ACCESS
-////////////////////////////////////////////////////////////////////
-
 var gclient *gitkit.Client
 var serverKey []byte
 var publicCerts []*x509.Certificate
-
-// ATOKJson is the json message for an Access Token
-type ATOKJson struct {
-	Kind string `json:"kind"`
-	Atok string `json:"atok"`
-}
 
 // tokenInit will setup to use GitKit
 func tokenInit() {
@@ -100,7 +90,7 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	pu, err := decodeSegment(p["photoUrl"])
 	dName := string(dn)
 	photoURL := string(pu)
-	if enableBackdoor && p["gittok"] == "Les" {
+	if EnableBackdoor && p["gittok"] == "Les" {
 		err = nil
 		token = &gitkit.Token{"Magic", "**AUDIENCE**", time.Now().UTC(),
 			time.Now().UTC().Add(1 * time.Hour), "00001", "lesv@abelana-app.com",
@@ -142,10 +132,22 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	user, err := FindUser(cx, at.UserID)
 	if err != nil {
 		// Not found, must create
-		user = &User{at.UserID, "firstName", "lastName", dName, token.Email, make([]string, 0, 100)}
+		user = &User{at.UserID, dName, token.Email, make([]string, 0, 100)}
 		CreateUser(cx, user)
 		CopyUserPhoto(cx, photoURL, at.UserID)
 	}
+}
+
+// Refresh will refresh an Access Token (ATok)
+func Refresh(p martini.Params, w http.ResponseWriter) {
+	t := &ATOKJson{"abelana#accessToken", "LES002.secret.token"} // FIXME TODO
+	replyJSON(w, t)
+}
+
+// GetSecretKey will send our key in a way that we only need call this once.
+func GetSecretKey(w http.ResponseWriter) {
+	st := &Status{"abelana#status", base64.URLEncoding.EncodeToString(serverKey)}
+	replyJSON(w, st)
 }
 
 /**
@@ -158,7 +160,7 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 // go away when Idenitty Toolkit supports access tokens.
 type AccToken struct {
 	UserID string
-	HalfPW string // TODO FIXME
+	HalfPW string // TODO FIXME -- make this go away
 	Iat    int64
 	Exp    int64
 	Email  string
@@ -186,12 +188,12 @@ func (at *AccToken) ID() string {
 	return at.UserID
 }
 
-// AtokAuth validates a given AccessToken
-func AtokAuth(c martini.Context, cx appengine.Context, p martini.Params, w http.ResponseWriter) {
+// Aauth validates a given AccessToken
+func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	var at *AccToken
 
 	haveCerts(cx)
-	if enableBackdoor && strings.HasPrefix(p["atok"], "LES") { // FIXME -- TEMPORARY BACKDOOR
+	if EnableBackdoor && strings.HasPrefix(p["atok"], "LES") { // FIXME -- TEMPORARY BACKDOOR
 		at = &AccToken{"00001", string(serverKey), time.Now().UTC().Unix(),
 			time.Now().UTC().Add(120 * 24 * time.Hour).Unix(), "lesv@abelana-app.com"}
 	} else {

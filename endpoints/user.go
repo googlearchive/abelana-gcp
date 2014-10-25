@@ -15,47 +15,79 @@
 package abelana
 
 import (
-	"errors"
+	"io"
 	"log"
+	"net/http"
 	"strings"
 
+	"appengine"
+	"appengine/datastore"
 	"appengine/urlfetch"
 
-	"appengine"
+	"code.google.com/p/goauth2/oauth"
+
+	"google.golang.org/cloud"
+	"google.golang.org/cloud/storage"
 )
 
-type User struct {
-	UserId      string
-	FirstName   string
-	LastName    string
-	DisplayName string
-	Email       string
-	Friends     []string
-}
-
 // FindUser Lookup the user
-func FindUser(cx appengine.Context, userId string) (*User, error) {
-
-	log.Printf("FindUser: %v", userId)
-	return nil, errors.New("not found")
+func FindUser(cx appengine.Context, userID string) (*User, error) {
+	cx.Infof("FindUser: %v", userID)
+	user := &User{}
+	err := datastore.Get(cx, datastore.NewKey(cx, "user", user.UserID, 0, nil), &user)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
 }
 
 // CreateUser will create the initial datastore entry for the user
-func CreateUser(cx appengine.Context, user *User) {
+func CreateUser(cx appengine.Context, user *User) error {
 	log.Printf("CreateUser: %v", user)
-
+	_, err := datastore.Put(cx, datastore.NewKey(cx, "user", user.UserID, 0, nil), user)
+	if err != nil {
+		cx.Errorf(" CreateUser %v %v", err, user.UserID)
+		return err
+	}
+	return nil
 }
 
 // CopyUserPhoto will copy the photo from
-func CopyUserPhoto(cx appengine.Context, url string, userId string) {
+func CopyUserPhoto(cx appengine.Context, url string, userID string) error {
 	// We want a larger photo
 	url = strings.Replace(url, "sz=50", "sz=2048", 1)
-	log.Printf("CopyUserPhoto: %v %v", userId, url)
+
 	client := urlfetch.Client(cx)
 	resp, err := client.Get(url)
-	if err == nil {
-		log.Printf("CopyUserPhto: (%v) %v %v", resp.StatusCode, err, resp.ContentLength)
-
-		resp.Body.Close()
+	defer resp.Body.Close()
+	if err != nil {
+		cx.Errorf(" copyUserPhoto: %v %v %v", userID, url, err)
+		return err
 	}
+
+	tok, _, err := appengine.AccessToken(cx, "https://www.googleapis.com/auth/devstorage.read_write")
+	if err != nil {
+		cx.Errorf(" AccessToken %v", err)
+		return err
+	}
+
+	transport := &oauth.Transport{
+		Token:     &oauth.Token{AccessToken: tok},
+		Transport: &urlfetch.Transport{Context: cx},
+	}
+	clnt := &http.Client{Transport: transport}
+
+	ctx := cloud.NewContext(projectID, clnt)
+	w := storage.NewWriter(ctx, bucket, userID+".jpg", &storage.Object{ContentType: "image/jpg"})
+	defer w.Close()
+
+	_, err = io.Copy(w, resp.Body)
+
+	if err := w.Close(); err != nil {
+		cx.Errorf(" cup closing %v", err)
+	}
+	if _, err := w.Object(); err != nil {
+		cx.Errorf("  .Object %v", err)
+	}
+	return err
 }

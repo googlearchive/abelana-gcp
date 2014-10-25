@@ -19,20 +19,54 @@ import (
 
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
-
-	"appengine/user"
 
 	"appengine"
 	//    "appengine/datastore"
+	"appengine/delay"
+	"appengine/urlfetch"
+
 	"github.com/go-martini/martini"
 	// "github.com/garyburd/redigo/redis"
+	auth "code.google.com/p/google-api-go-client/oauth2/v2"
+	//	"github.com/golang/oauth2/google"
 )
+
+////////////////////////////////////////////////////////////////////
+const EnableBackdoor = true // FIXME(lesv) TEMPORARY BACKDOOR ACCESS
+////////////////////////////////////////////////////////////////////
+
+const (
+	authEmail     = "abelana-222@appspot.gserviceaccount.com"
+	projectID     = "abelana-222"
+	bucket        = "abelana-in"
+	uploadRetries = 5
+)
+
+var delayFunc = delay.Func("test003", func(cx appengine.Context, x string) {
+	cx.Infof("delay happened " + x)
+})
+
+// User is the root structure for everything.  For RockStars, it will probably get too large to
+// memcache, so we'll skip that for now.
+type User struct {
+	UserID      string
+	DisplayName string
+	Email       string
+	Friends     []string
+}
 
 // Comment holds all comments
 type Comment struct {
-	UserID string
-	Text   string
+	FriendID string `json:"friendid"`
+	Text     string `json:"text"`
+}
+
+// Comments returned from GetComments()
+type Comments struct {
+	Kind    string    `json:"kind"`
+	Entries []Comment `json:"entries"`
 }
 
 // TLEntry holds timeline entries
@@ -51,12 +85,28 @@ type Timeline struct {
 
 // Friend holds information about our friends
 type Friend struct {
-	UserID    string
-	UserPhoto string
-	Email     string
-	Name      string
-	ShareTo   bool
-	ShareFrom bool
+	kind     string `json:"kind"`
+	FriendID string `json:"friendid"`
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+}
+
+// FriendList holds a list of our friends
+type FriendList struct {
+	kind    string   `json:"kind"`
+	Friends []string `json:"friendid"`
+}
+
+// ATOKJson is the json message for an Access Token (TEMPORARY - Until GitKit supports this)
+type ATOKJson struct {
+	Kind string `json:"kind"`
+	Atok string `json:"atok"`
+}
+
+// Status is what we return if we have nothing to return
+type Status struct {
+	Kind   string `json:"kind"`
+	Status string `json:"status"`
 }
 
 // AppEngine middleware inserts a context where it's needed.
@@ -68,41 +118,42 @@ func init() {
 	m := martini.Classic()
 	m.Use(AppEngine)
 
-	m.Get("/user/:gittok/login/:displayName/:photoUrl", Login)
-	m.Get("/user/:gittok/login", Login)
+	m.Get("/user/:gittok/login/:displayName/:photoUrl", Login)                  // => ATOKJson
+	m.Get("/user/:atok/refresh", Aauth, Refresh)                                // => ATOKJson
+	m.Get("/user/:atok/useful", Aauth, GetSecretKey)                            // => Status
+	m.Delete("/user/:atok", Aauth, Wipeout)                                     // => Status
+	m.Post("/user/:atok/facebook/:fbkey", Aauth, Import)                        // => Status
+	m.Post("/user/:atok/plus/:plkey", Aauth, Import)                            // => Status
+	m.Post("/user/:atok/yahoo/:ykey", Aauth, Import)                            // => Status
+	m.Get("/user/:atok/friend", Aauth, GetFriendsList)                          // => FriendList
+	m.Put("/user/:atok/friend/:friendid", Aauth, AddFriend)                     // => Status
+	m.Get("/user/:atok/friend/:friendid", Aauth, GetFriend)                     // => Friend
+	m.Put("/user/atok/device/:regid", Aauth, Register)                          // => Status
+	m.Delete("/user/:atok/device/:regid", Aauth, Unregister)                    // => Status
+	m.Get("/user/:atok/timeline/:lastid", Aauth, GetTimeLine)                   // => Timeline
+	m.Get("/user/:atok/profile/:lastid", Aauth, GetMyProfile)                   // => Timeline
+	m.Get("/user/:atok/friend/:friendid/profile/:lastid", Aauth, FriendProfile) // => Timeline
+	m.Post("/photo/:atok/:photoid/comment/:text", Aauth, SetPhotoComments)      // => Status
+	m.Put("/photo/:atok/:photoid/like", Aauth, Like)                            // => Status
+	m.Delete("/photo/:atok/:photoid/like", Aauth, Unlike)                       // => Status
+	m.Get("/photo/:atok/:photoid/flag", Aauth, Flag)                            // => Status
+	m.Get("/photo/:atok/:photoid/comments", Aauth, GetComments)                 // => Comments
+	m.Post("/photopush/:superid", PostPhoto)                                    // "ok"
 
-	m.Get("/user/:atok/refresh", AtokAuth, Refresh)
-	m.Delete("/user/:atok", AtokAuth, Wipeout)
-	m.Post("/user/:atok/facebook/:fbkey", AtokAuth, Import)
-	m.Post("/user/:atok/plus/:plkey", AtokAuth, Import)
-	m.Post("/user/:atok/yahoo/:ykey", AtokAuth, Import)
-	m.Get("/user/:atok/photo", AtokAuth, GetUserPhoto)
-
-	m.Get("/user/:atok/friend", AtokAuth, GetFriendsList)
-	m.Put("/user/:atok/friend/:friendid", AtokAuth, AddFriend)
-	m.Get("/user/:atok/friend/:friendid", AtokAuth, GetFriend)
-
-	m.Put("/user/atok/device/:regid", AtokAuth, Register)
-	m.Delete("/user/:atok/device/:regid", AtokAuth, Unregister)
-
-	m.Get("/user/:atok/timeline/:lastid", AtokAuth, GetTimeLine)
-	m.Get("/user/:atok/profile/:lastid", AtokAuth, GetMyProfile)
-	m.Get("/user/:atok/friend/:friendid/profile/:lastid", AtokAuth, GetFriendsProfile)
-
-	m.Post("/photo/:atok/:photoid/comment", AtokAuth, SetPhotoComments)
-	m.Put("/photo/:atok/:photoid/like", AtokAuth, Like)
-	m.Delete("/photo/:atok/:photoid/like", AtokAuth, Unlike)
-	m.Get("/photo/:atok/:photoid/comments", AtokAuth, GetComments)
-
-	m.Post("/photopush/:superid", PostPhoto)
+	if EnableBackdoor {
+		m.Get("/les", Test)
+		m.Get("/user/:gittok/login", Login)
+	}
 
 	tokenInit()
 
 	http.Handle("/", m)
 }
 
-// Ok simple reply for string versions
-func Ok() string {
+// Test does magic of the moment
+func Test(cx appengine.Context) string {
+	cx.Infof("Test...")
+	delayFunc.Call(cx, "hello world")
 	return `ok`
 }
 
@@ -119,6 +170,11 @@ func replyJSON(w http.ResponseWriter, v interface{}) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func replyOk(w http.ResponseWriter) {
+	st := &Status{"abelana#status", "ok"}
+	replyJSON(w, st)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -174,38 +230,78 @@ func GetTimeLine(p martini.Params, w http.ResponseWriter, req *http.Request) {
 }
 
 // GetMyProfile - Get my entries only (token) : TlResp
-func GetMyProfile(p martini.Params) string {
-	return Ok()
+func GetMyProfile(p martini.Params, w http.ResponseWriter, req *http.Request) {
+	t := time.Now().Unix()
+	timeline := []TLEntry{
+		TLEntry{t - 99993, "00001", "0006", 99},
+		TLEntry{t - 102304, "00001", "0007", 0},
+		TLEntry{t - 102750, "00001", "0008", 3},
+		TLEntry{t - 104333, "00001", "0009", 1},
+		TLEntry{t - 105323, "00001", "0010", 99},
+		TLEntry{t - 107323, "00001", "0011", 0},
+		TLEntry{t - 109323, "00001", "0004", 3},
+		TLEntry{t - 110000, "00001", "0001", 1},
+		TLEntry{t - 110133, "00001", "0002", 99},
+		TLEntry{t - 113444, "00001", "0003", 0},
+		TLEntry{t - 122433, "00001", "0005", 3},
+		TLEntry{t - 125320, "00001", "0007", 1},
+		TLEntry{t - 125325, "00001", "0006", 99},
+		TLEntry{t - 127555, "00001", "0011", 0},
+		TLEntry{t - 128333, "00001", "0009", 3},
+		TLEntry{t - 173404, "00001", "0005", 21}}
+	tl := &Timeline{"abelana#timeline", timeline}
+	replyJSON(w, tl)
 }
 
-// GetFriendsProfile - Get a specific friends entries only (TlfReq) : TlResp
-func GetFriendsProfile(p martini.Params) string {
-	return Ok()
-}
-
-// GetUserPhoto Will return the user photo It should just be userID.webm
-// (ie, we won't be needing this function)
-func GetUserPhoto(p martini.Params) string {
-	return Ok()
+// FriendProfile - Get a specific friends entries only (TlfReq) : TlResp
+func FriendProfile(p martini.Params, w http.ResponseWriter, req *http.Request) {
+	t := time.Now().Unix()
+	timeline := []TLEntry{
+		TLEntry{t - 80500, "00001", "0002", 99},
+		TLEntry{t - 81200, "00001", "0003", 0},
+		TLEntry{t - 89302, "00001", "0005", 3},
+		TLEntry{t - 91200, "00001", "0007", 1},
+		TLEntry{t - 92343, "00001", "0006", 99},
+		TLEntry{t - 93233, "00001", "0011", 0},
+		TLEntry{t - 94322, "00001", "0009", 3},
+		TLEntry{t - 95323, "00001", "0002", 99},
+		TLEntry{t - 96734, "00001", "0003", 0},
+		TLEntry{t - 98033, "00001", "0004", 3},
+		TLEntry{t - 99334, "00001", "0005", 1},
+		TLEntry{t - 99993, "00001", "0006", 99}}
+	tl := &Timeline{"abelana#timeline", timeline}
+	replyJSON(w, tl)
 }
 
 // PostPhoto lets us know that we have a photo, we then tell both DataStore and Redis
 func PostPhoto(cx appengine.Context, p martini.Params, w http.ResponseWriter, rq *http.Request) string {
 	cx.Infof("PostPhoto %v", p["superid"])
-	u, err := user.CurrentOAuth(cx, "")
-	cx.Infof("pp %v", u)
-	if err != nil {
-		cx.Infof("Oauth unauthorized %v", err)
-		cx.Infof(" rq %v", rq.Header)
-		http.Error(w, "OAuth Authorization header required", http.StatusUnauthorized)
-		return ""
+	otok := rq.Header.Get("Authorization")
+	ok, err := authorized(cx, otok)
+	if !ok {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return ``
+	}
+	return `ok`
+}
+
+func authorized(cx appengine.Context, token string) (bool, error) {
+	if fs := strings.Fields(token); len(fs) == 2 && fs[0] == "Bearer" {
+		token = fs[1]
+	} else {
+		return false, nil
 	}
 
-	// if !u.Admin {
-	// 	http.Error(w, "Admin login only", http.StatusUnauthorized)
-	// 	return ""
-	// }
-	return Ok()
+	svc, err := auth.New(urlfetch.Client(cx))
+	if err != nil {
+		return false, err
+	}
+	tok, err := svc.Tokeninfo().Access_token(token).Do()
+	if err != nil {
+		return false, err
+	}
+	cx.Infof("  tok %v", tok)
+	return tok.Email == authEmail, nil
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -213,39 +309,29 @@ func PostPhoto(cx appengine.Context, p martini.Params, w http.ResponseWriter, rq
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Import for Facebook / G+ / ... (xcred) : StatusResp
-func Import(p martini.Params) string {
-	return Ok()
+func Import(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
+	replyOk(w)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Friend
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-// FlResp A list of friends
-type FlResp struct {
-	Friends []Friend
-}
-
-// FrReq Request sharing change
-type FrReq struct {
-	ATok     string
-	FriendID string
-	shareTo  bool
-}
-
 // GetFriendsList - A list of our friends (AToken) : FlResp
-func GetFriendsList(p martini.Params) string {
-	return Ok()
+func GetFriendsList(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
+	fl := &FriendList{"abelana#friendList", []string{"00001", "12730648828453578083"}}
+	replyJSON(w, fl)
 }
 
 // GetFriend -- find out about someone (FReq) : Friend
-func GetFriend(p martini.Params) string {
-	return Ok()
+func GetFriend(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
+	f := &Friend{"abelana#friend", "00001", "lesv@abelana-app.com", "Les Vogel"}
+	replyJSON(w, f)
 }
 
 // AddFriend - will tell us about a new possible friend (FrReq) : Status
-func AddFriend(p martini.Params) string {
-	return Ok()
+func AddFriend(p martini.Params, w http.ResponseWriter) {
+	replyOk(w)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -253,45 +339,46 @@ func AddFriend(p martini.Params) string {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // SetPhotoComments allows the users voice to be heard (PhotoComment) : Status
-func SetPhotoComments(p martini.Params) string {
-	return Ok()
+func SetPhotoComments(p martini.Params, w http.ResponseWriter) {
+	replyOk(w)
 }
 
 // Like let's the user tell of their joy (Photo) : Status
-func Like(p martini.Params) string {
-	return Ok()
+func Like(p martini.Params, w http.ResponseWriter) {
+	replyOk(w)
 }
 
 // Unlike let's the user recind their +1 (Photo) : Status
-func Unlike(p martini.Params) string {
-	return Ok()
+func Unlike(p martini.Params, w http.ResponseWriter) {
+	replyOk(w)
+}
+
+// Flag will bring this to the administrators attention.
+func Flag(p martini.Params, w http.ResponseWriter) {
+	replyOk(w)
 }
 
 // GetComments will get the comments given a photoid
-func GetComments(p martini.Params) string {
-	return `{"Status": "Ok", "Comments":[]}`
+func GetComments(p martini.Params, w http.ResponseWriter) {
+	cl := &Comments{"abelana#comments", []Comment{Comment{"00001", "Looks Great!"}}}
+	replyJSON(w, cl)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Management
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Refresh will refresh an Access Token (ATok)
-func Refresh(p martini.Params) string {
-	return `{"Status": "Ok", "Atok": "LES002"}`
-}
-
 // Wipeout will erase all data you are working on. (Atok) : Status
-func Wipeout(p martini.Params) string {
-	return Ok()
+func Wipeout(p martini.Params, w http.ResponseWriter) {
+	replyOk(w)
 }
 
 // Register will start GCM messages to your device (GCMReq) : Status
-func Register(p martini.Params) string {
-	return Ok()
+func Register(p martini.Params, w http.ResponseWriter) {
+	replyOk(w)
 }
 
 // Unregister will stop GCM messages from going to your device (GCMReq) : Status
-func Unregister(p martini.Params) string {
-	return Ok()
+func Unregister(p martini.Params, w http.ResponseWriter) {
+	replyOk(w)
 }
