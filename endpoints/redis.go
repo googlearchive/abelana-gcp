@@ -16,8 +16,10 @@ package abelana
 
 import (
 	"strings"
+	"time"
 
 	"appengine"
+	"appengine/datastore"
 	"appengine/socket"
 
 	"github.com/garyburd/redigo/redis"
@@ -54,13 +56,12 @@ func AddTheUser(cx appengine.Context, userID string) {
 	}
 }
 
-// AddTheFriend is Called when we need to add a friend
-func AddTheFriend(cx appengine.Context, userID, friendID string) {
+// addTheFriend is Called when we need to add a friend
+func addTheFriend(cx appengine.Context, userID, friendID string) {
 
 }
 
-// AddPhoto is called to add a photo, at the moment, there isn't anything other than the name, so
-// why bother adding to the datastore.  We'll store comments as UserID > PhotoID > CommentID
+// AddPhoto is called to add a photo.
 func AddPhoto(cx appengine.Context, superID string) {
 
 	s := strings.Split(superID, ".")
@@ -73,6 +74,7 @@ func AddPhoto(cx appengine.Context, superID string) {
 		cx.Errorf("AddPhoto unable to find user %v %v", superID, err)
 		return
 	}
+
 	hc, err := socket.Dial(cx, "tcp", server)
 	if err != nil {
 		cx.Errorf("AddPhoto Dial %v", err)
@@ -82,8 +84,7 @@ func AddPhoto(cx appengine.Context, superID string) {
 	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
 
 	photo := s[0] + "." + s[1]
-	// See if we have done this already, block others.
-	ok, err := redis.String(conn.Do("SET", photo, "1", "NX"))
+	ok, err := redis.String(conn.Do("SET", photo, "0", "NX")) // Set Likes to 0 if new
 	if err != nil && err != redis.ErrNil {
 		cx.Errorf("AddPhoto Exists %v", err)
 		return
@@ -92,6 +93,8 @@ func AddPhoto(cx appengine.Context, superID string) {
 		cx.Errorf("AddPhoto duplicate %v", ok)
 		return
 	}
+
+	// TODO -- at some point these should be done in batches of 100 or so.
 	for _, friendID := range u.Friends {
 		conn.Send("LPUSH", friendID+"P", photo)
 	}
@@ -109,4 +112,8 @@ func AddPhoto(cx appengine.Context, superID string) {
 			}
 		}
 	}
+	p := &Photo{s[1], time.Now().UTC().Unix()}
+	k1 := datastore.NewKey(cx, "User", s[0], 0, nil)
+	k2 := datastore.NewKey(cx, "Photo", s[1], 0, k1)
+	_, err = datastore.Put(cx, k2, p)
 }

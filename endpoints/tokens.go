@@ -139,9 +139,31 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 }
 
 // Refresh will refresh an Access Token (ATok)
-func Refresh(p martini.Params, w http.ResponseWriter) {
-	t := &ATOKJson{"abelana#accessToken", "LES002.secret.token"} // FIXME TODO
-	replyJSON(w, t)
+func Refresh(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
+	haveCerts(cx)
+	s := strings.Split(p["atok"], ".")
+	ct, err := base64.URLEncoding.DecodeString(s[1])
+	at := &AccToken{}
+	if err = json.Unmarshal(ct, &at); err != nil {
+		http.Error(w, "Invalid Token", http.StatusUnauthorized)
+		return
+	}
+	at.Exp = time.Now().UTC().Add(120 * 24 * time.Hour).Unix()
+
+	ts, err := json.Marshal(at)
+	if err != nil {
+		http.Error(w, "Invalid Token", http.StatusUnauthorized)
+		return
+	}
+	s[1] = base64.URLEncoding.EncodeToString(ts)
+	_, sig, err := appengine.SignBytes(cx, []byte(s[0]+"."+s[1]))
+	if err != nil {
+		http.Error(w, "Invalid Token", http.StatusUnauthorized)
+		return
+	}
+	s[2] = base64.URLEncoding.EncodeToString(sig)
+
+	replyJSON(w, &ATOKJson{"abelana#accessToken", strings.Join(s, ".")})
 }
 
 // GetSecretKey will send our key in a way that we only need call this once.
@@ -229,7 +251,7 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 			http.Error(w, "Invalid Token", http.StatusUnauthorized)
 			return
 		}
-		if at.UserID == "" || at.HalfPW == "" || at.Iat == 0 || at.Exp == 0 || at.Email == "" {
+		if at.UserID == "" || at.Iat == 0 || at.Exp == 0 || at.Email == "" {
 			http.Error(w, "Invalid Token", http.StatusUnauthorized)
 			return
 		}
@@ -247,12 +269,6 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 	}
 
 	c.MapTo(at, (*Access)(nil))
-}
-
-// RefreshAccessToken refreshes the access token for another few weeks.
-func RefreshAccessToken(atok string) (string, error) {
-
-	return "003 token", nil
 }
 
 // The following code is modified and taken from the GitKit client library.
