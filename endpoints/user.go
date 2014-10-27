@@ -16,7 +16,6 @@ package abelana
 
 import (
 	"io"
-	"log"
 	"net/http"
 	"strings"
 
@@ -30,21 +29,25 @@ import (
 	"google.golang.org/cloud/storage"
 )
 
-// FindUser Lookup the user
-func FindUser(cx appengine.Context, userID string) (*User, error) {
+// findUser Lookup the user
+func findUser(cx appengine.Context, userID string) (User, error) {
+	var user User
+
 	cx.Infof("FindUser: %v", userID)
-	user := &User{}
-	err := datastore.Get(cx, datastore.NewKey(cx, "user", user.UserID, 0, nil), &user)
+
+	key := datastore.NewKey(cx, "User", userID, 0, nil)
+	cx.Infof("  Key=%v", key)
+	err := datastore.Get(cx, key, &user)
 	if err != nil {
-		return nil, err
+		return User{}, err
 	}
 	return user, nil
 }
 
-// CreateUser will create the initial datastore entry for the user
-func CreateUser(cx appengine.Context, user *User) error {
-	log.Printf("CreateUser: %v", user)
-	_, err := datastore.Put(cx, datastore.NewKey(cx, "user", user.UserID, 0, nil), user)
+// createUser will create the initial datastore entry for the user
+func createUser(cx appengine.Context, user User) error {
+	cx.Infof("CreateUser: %v", user)
+	_, err := datastore.Put(cx, datastore.NewKey(cx, "User", user.UserID, 0, nil), &user)
 	if err != nil {
 		cx.Errorf(" CreateUser %v %v", err, user.UserID)
 		return err
@@ -52,7 +55,7 @@ func CreateUser(cx appengine.Context, user *User) error {
 	return nil
 }
 
-// CopyUserPhoto will copy the photo from
+// CopyUserPhoto will copy the photo from, will likey be called from delayFunc
 func CopyUserPhoto(cx appengine.Context, url string, userID string) error {
 	// We want a larger photo
 	url = strings.Replace(url, "sz=50", "sz=2048", 1)
@@ -89,5 +92,6 @@ func CopyUserPhoto(cx appengine.Context, url string, userID string) error {
 	if _, err := w.Object(); err != nil {
 		cx.Errorf("  .Object %v", err)
 	}
-	return err
+	cx.Infof("CopyUserPhoto ok %v %v", userID, url)
+	return nil
 }

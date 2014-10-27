@@ -37,16 +37,23 @@ import (
 const EnableBackdoor = true // FIXME(lesv) TEMPORARY BACKDOOR ACCESS
 ////////////////////////////////////////////////////////////////////
 
+// These things shouldn't be here, but there isn't a good place to get them at the moment.
 const (
 	authEmail     = "abelana-222@appspot.gserviceaccount.com"
 	projectID     = "abelana-222"
 	bucket        = "abelana-in"
+	redisInt      = "10.240.85.221:6379"
+	redisExt      = "23.251.150.167:6379"
 	uploadRetries = 5
 )
 
 var delayFunc = delay.Func("test003", func(cx appengine.Context, x string) {
 	cx.Infof("delay happened " + x)
 })
+
+var delayCopyImage = delay.Func("CopyImage001", CopyUserPhoto)
+var delayAddPhoto = delay.Func("AddImage002", AddPhoto)
+var delayAddFriend = delay.Func("AddFriend003", AddTheFriend)
 
 // User is the root structure for everything.  For RockStars, it will probably get too large to
 // memcache, so we'll skip that for now.
@@ -148,6 +155,7 @@ func init() {
 	tokenInit()
 
 	http.Handle("/", m)
+	redisInit()
 }
 
 // Test does magic of the moment
@@ -277,10 +285,16 @@ func FriendProfile(p martini.Params, w http.ResponseWriter, req *http.Request) {
 func PostPhoto(cx appengine.Context, p martini.Params, w http.ResponseWriter, rq *http.Request) string {
 	cx.Infof("PostPhoto %v", p["superid"])
 	otok := rq.Header.Get("Authorization")
-	ok, err := authorized(cx, otok)
-	if !ok {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
-		return ``
+	if !appengine.IsDevAppServer() {
+		ok, err := authorized(cx, otok)
+		if !ok {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return ``
+		}
+	}
+	s := strings.Split(p["superid"], ".")
+	if len(s) == 3 { // We only need to call for userid.photoID.webp
+		delayAddPhoto.Call(cx, p["superid"])
 	}
 	return `ok`
 }
