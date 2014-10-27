@@ -129,12 +129,12 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 
 	// TODO - Look us up in datastore, add us to memcache, and be happy.
 	// We may also want to create us in Datastore
-	user, err := FindUser(cx, at.UserID)
+	user, err := findUser(cx, at.UserID)
 	if err != nil {
 		// Not found, must create
-		user = &User{at.UserID, dName, token.Email, make([]string, 0, 100)}
-		CreateUser(cx, user)
-		CopyUserPhoto(cx, photoURL, at.UserID)
+		user = User{at.UserID, dName, token.Email, make([]string, 0, 100)}
+		createUser(cx, user)
+		delayCopyImage.Call(cx, photoURL, at.UserID) // was CopyUserPhoto
 	}
 }
 

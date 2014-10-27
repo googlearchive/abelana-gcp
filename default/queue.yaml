@@ -1,7 +1,7 @@
 total_storage_limit: 500M
 queue:
 - name: photo-queue-small
-  rate: 20/s
+  rate: 5/s
   bucket_size: 10000
   max_concurrent_requests: 10
   retry_parameters:
@@ -12,7 +12,7 @@ queue:
     max_doublings: 6
 
 - name: photo-queue-medium
-  rate: 10/s
+  rate: 2/s
   bucket_size: 10000
   max_concurrent_requests: 5
   retry_parameters:
@@ -23,7 +23,7 @@ queue:
     max_doublings: 6
 
 - name: photo-queue-large
-  rate: 1/s
+  rate: 30/m
   bucket_size: 10000
   max_concurrent_requests: 2
   retry_parameters:
@@ -32,3 +32,6 @@ queue:
     min_backoff_seconds: 10
     max_backoff_seconds: 200
     max_doublings: 6
+
+- name: new-images
+  rate: 1/s
