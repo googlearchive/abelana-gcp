@@ -127,8 +127,7 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 
 	replyJSON(w, &ATOKJson{"abelana#accessToken", strings.Join(parts, ".")})
 
-	// TODO - Look us up in datastore, add us to memcache, and be happy.
-	// We may also want to create us in Datastore
+	// Look us up in datastore and be happy.
 	user, err := findUser(cx, at.UserID)
 	if err != nil {
 		// Not found, must create

@@ -56,8 +56,8 @@ func AddTheUser(cx appengine.Context, userID string) {
 	}
 }
 
-// addTheFriend is Called when we need to add a friend
-func addTheFriend(cx appengine.Context, userID, friendID string) {
+// addTheFolower is Called when we need to add a folower
+func addTheFollower(cx appengine.Context, userID, followerID string) {
 
 }
 
@@ -75,6 +75,7 @@ func AddPhoto(cx appengine.Context, superID string) {
 		return
 	}
 
+	p := &Photo{s[1], time.Now().UTC().Unix()}
 	hc, err := socket.Dial(cx, "tcp", server)
 	if err != nil {
 		cx.Errorf("AddPhoto Dial %v", err)
@@ -94,25 +95,44 @@ func AddPhoto(cx appengine.Context, superID string) {
 		return
 	}
 
+	ok, err = redis.String(conn.Do("SET", photo+"D", p.Date)) // Set Likes to 0 if new
+	if err != nil && err != redis.ErrNil {
+		cx.Errorf("AddPhoto D Exists %v", err)
+		return
+	}
+	if ok != "OK" {
+		cx.Errorf("AddPhoto D duplicate %v", ok)
+		return
+	}
+
+	ok, err = redis.String(conn.Do("SET", photo+"N", u.DisplayName)) // Set Likes to 0 if new
+	if err != nil && err != redis.ErrNil {
+		cx.Errorf("AddPhoto N Exists %v", err)
+		return
+	}
+	if ok != "OK" {
+		cx.Errorf("AddPhoto N duplicate %v", ok)
+		return
+	}
+
 	// TODO -- at some point these should be done in batches of 100 or so.
-	for _, friendID := range u.Friends {
-		conn.Send("LPUSH", friendID+"P", photo)
+	for _, followerID := range u.Followers {
+		conn.Send("LPUSH", followerID+"P", photo)
 	}
 	conn.Flush()
-	for _, friendID := range u.Friends {
+	for _, followerID := range u.Followers {
 		v, err := redis.Int(conn.Receive())
 		if err != nil && err != redis.ErrNil {
-			cx.Errorf("AddPhoto for %v %v", friendID+"P", err)
+			cx.Errorf("AddPhoto for %v %v", followerID+"P", err)
 		} else {
 			if v > 2000 {
-				_, err := conn.Do("RPOP", friendID)
+				_, err := conn.Do("RPOP", followerID)
 				if err != nil {
 					cx.Errorf("AddPhoto RPOP %v", err)
 				}
 			}
 		}
 	}
-	p := &Photo{s[1], time.Now().UTC().Unix()}
 	k1 := datastore.NewKey(cx, "User", s[0], 0, nil)
 	k2 := datastore.NewKey(cx, "Photo", s[1], 0, k1)
 	_, err = datastore.Put(cx, k2, p)
