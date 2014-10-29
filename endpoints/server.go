@@ -19,19 +19,16 @@ import (
 
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"appengine"
 	"appengine/datastore"
 	"appengine/delay"
-	"appengine/socket"
 	"appengine/urlfetch"
 
 	auth "code.google.com/p/google-api-go-client/oauth2/v2"
 
-	"github.com/garyburd/redigo/redis"
 	"github.com/go-martini/martini"
 )
 
@@ -226,58 +223,14 @@ func replyOk(w http.ResponseWriter) {
 
 // GetTimeLine - get the timeline for the user (token) : TlResp
 func GetTimeLine(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	var item string
-	timeline := []TLEntry{}
+	var timeline []TLEntry
+	var err error
 
 	if !enableStubs {
-		hc, err := socket.Dial(cx, "tcp", server)
+		timeline, err = getTimeline(cx, at.ID(), p["lastid"])
 		if err != nil {
-			cx.Errorf("GetTimeLine Dial %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}
-		defer hc.Close()
-		conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
-
-		list, err := redis.Strings(conn.Do("LRANGE", "TL:"+at.ID(), 0, -1))
-		if err != nil && err != redis.ErrNil {
-			cx.Errorf("GetTimeLine %v", err)
-		}
-		ix := 0
-		lastid := p["lastid"]
-		if lastid != "0" {
-			for ix, item = range list {
-				if item == lastid {
-					break
-				}
-			}
-		}
-		timeline = make([]TLEntry, 0, timelineBatchSize)
-		for i := 0; i < timelineBatchSize && i+ix < len(list); i++ {
-			photoID := list[ix+i]
-
-			v, err := redis.Strings(conn.Do("HMGET", "IM:"+photoID, "date", at.ID(), "flag"))
-			if err != nil && err != redis.ErrNil {
-				cx.Errorf("GetTimeLine HMGET %v", err)
-			}
-			if v[2] != "" {
-				flags, err := strconv.Atoi(v[2])
-				if err == nil && flags > 1 {
-					continue // skip flag'd images
-				}
-			}
-			likes, err := redis.Int(conn.Do("HLEN", "IM:"+photoID))
-			if err != nil && err != redis.ErrNil {
-				cx.Errorf("GetTimeLine HLEN %v", err)
-			}
-			s := strings.Split(photoID, ".")
-			dn, err := redis.String(conn.Do("HGET", "HT:"+s[0], "dn"))
-			if err != nil && err != redis.ErrNil {
-				cx.Errorf("GetTimeLine HLEN %v", err)
-			}
-			dt, err := strconv.ParseInt(v[0], 10, 64)
-			te := TLEntry{dt, s[0], dn, photoID, likes - 1, v[1] == "1"}
-			timeline = append(timeline, te)
 		}
 	} else {
 		t := time.Now().Unix()
@@ -294,15 +247,7 @@ func GetTimeLine(cx appengine.Context, at Access, p martini.Params, w http.Respo
 				TLEntry{t - 53002, "00001", "Les", "0009", 1, true},
 				TLEntry{t - 54323, "00001", "Les", "0010", 99, false},
 				TLEntry{t - 56112, "00001", "Les", "0011", 0, false},
-				TLEntry{t - 58243, "00001", "Les", "0004", 3, false},
-				TLEntry{t - 80201, "00001", "Les", "0001", 1, true},
-				TLEntry{t - 80500, "00001", "Les", "0002", 99, true},
-				TLEntry{t - 81200, "00001", "Les", "0003", 0, false},
-				TLEntry{t - 89302, "00001", "Les", "0005", 3, false},
-				TLEntry{t - 91200, "00001", "Les", "0007", 1, false},
-				TLEntry{t - 92343, "00001", "Les", "0006", 99, false},
-				TLEntry{t - 93233, "00001", "Les", "0011", 0, false},
-				TLEntry{t - 94322, "00001", "Les", "0009", 3, false}}
+				TLEntry{t - 58243, "00001", "Les", "0004", 3, false}}
 		} else {
 			timeline = []TLEntry{
 				TLEntry{t - 95323, "00002", "Zafir", "0002", 99, false},
@@ -312,19 +257,7 @@ func GetTimeLine(cx appengine.Context, at Access, p martini.Params, w http.Respo
 				TLEntry{t - 99993, "00002", "Zafir", "0006", 99, false},
 				TLEntry{t - 102304, "00002", "Zafir", "0007", 0, false},
 				TLEntry{t - 102750, "00002", "Zafir", "0008", 3, false},
-				TLEntry{t - 104333, "00002", "Zafir", "0009", 1, false},
-				TLEntry{t - 105323, "00002", "Zafir", "0010", 99, false},
-				TLEntry{t - 107323, "00002", "Zafir", "0011", 0, false},
-				TLEntry{t - 109323, "00002", "Zafir", "0004", 3, false},
-				TLEntry{t - 110000, "00002", "Zafir", "0001", 1, false},
-				TLEntry{t - 110133, "00002", "Zafir", "0002", 99, false},
-				TLEntry{t - 113444, "00002", "Zafir", "0003", 0, false},
-				TLEntry{t - 122433, "00002", "Zafir", "0005", 3, false},
-				TLEntry{t - 125320, "00002", "Zafir", "0007", 1, false},
-				TLEntry{t - 125325, "00002", "Zafir", "0006", 99, false},
-				TLEntry{t - 127555, "00002", "Zafir", "0011", 0, false},
-				TLEntry{t - 128333, "00002", "Zafir", "0009", 3, false},
-				TLEntry{t - 173404, "00002", "Zafir", "0005", 21, false}}
+				TLEntry{t - 104333, "00002", "Zafir", "0009", 1, false}}
 		}
 	}
 	tl := &Timeline{"abelana#timeline", timeline}
@@ -353,15 +286,6 @@ func GetMyProfile(cx appengine.Context, at Access, w http.ResponseWriter) {
 			TLEntry{t - 104333, "00001", "Les", "0009", 1, false},
 			TLEntry{t - 105323, "00001", "Les", "0010", 9, false},
 			TLEntry{t - 107323, "00001", "Les", "0011", 0, false},
-			TLEntry{t - 109323, "00001", "Les", "0004", 3, false},
-			TLEntry{t - 110000, "00001", "Les", "0001", 1, false},
-			TLEntry{t - 110133, "00001", "Les", "0002", 99, true},
-			TLEntry{t - 113444, "00001", "Les", "0003", 0, false},
-			TLEntry{t - 122433, "00001", "Les", "0005", 3, false},
-			TLEntry{t - 125320, "00001", "Les", "0007", 1, false},
-			TLEntry{t - 125325, "00001", "Les", "0006", 99, false},
-			TLEntry{t - 127555, "00001", "Les", "0011", 0, false},
-			TLEntry{t - 128333, "00001", "Les", "0009", 3, false},
 			TLEntry{t - 173404, "00001", "Les", "0005", 21, false}}
 	}
 	tl := &Timeline{"abelana#timeline", timeline}
@@ -385,11 +309,6 @@ func FProfile(cx appengine.Context, at Access, p martini.Params, w http.Response
 			TLEntry{t - 89302, "00001", "Les", "0005", 3, true},
 			TLEntry{t - 91200, "00001", "Les", "0007", 1, false},
 			TLEntry{t - 92343, "00001", "Les", "0006", 99, true},
-			TLEntry{t - 93233, "00001", "Les", "0011", 0, false},
-			TLEntry{t - 94322, "00001", "Les", "0009", 3, false},
-			TLEntry{t - 95323, "00001", "Les", "0002", 99, false},
-			TLEntry{t - 96734, "00001", "Les", "0003", 0, false},
-			TLEntry{t - 98033, "00001", "Les", "0004", 3, false},
 			TLEntry{t - 99334, "00001", "Les", "0005", 1, false},
 			TLEntry{t - 99993, "00001", "Les", "0006", 99, false}}
 	}

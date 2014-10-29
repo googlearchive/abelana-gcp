@@ -15,6 +15,7 @@
 package abelana
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,6 +102,61 @@ func addPhoto(cx appengine.Context, superID string) {
 	if err != nil {
 		cx.Errorf("AddPhoto datastore %v", err)
 	}
+}
+
+// getTimeline
+func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error) {
+	var item string
+	timeline := []TLEntry{}
+
+	hc, err := socket.Dial(cx, "tcp", server)
+	if err != nil {
+		cx.Errorf("GetTimeLine Dial %v", err)
+		return nil, err
+	}
+	defer hc.Close()
+	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
+
+	list, err := redis.Strings(conn.Do("LRANGE", "TL:"+userID, 0, -1))
+	if err != nil && err != redis.ErrNil {
+		cx.Errorf("GetTimeLine %v", err)
+	}
+	ix := 0
+	if lastid != "0" {
+		for ix, item = range list {
+			if item == lastid {
+				break
+			}
+		}
+	}
+	timeline = make([]TLEntry, 0, timelineBatchSize)
+	for i := 0; i < timelineBatchSize && i+ix < len(list); i++ {
+		photoID := list[ix+i]
+
+		v, err := redis.Strings(conn.Do("HMGET", "IM:"+photoID, "date", userID, "flag"))
+		if err != nil && err != redis.ErrNil {
+			cx.Errorf("GetTimeLine HMGET %v", err)
+		}
+		if v[2] != "" {
+			flags, err := strconv.Atoi(v[2])
+			if err == nil && flags > 1 {
+				continue // skip flag'd images
+			}
+		}
+		likes, err := redis.Int(conn.Do("HLEN", "IM:"+photoID))
+		if err != nil && err != redis.ErrNil {
+			cx.Errorf("GetTimeLine HLEN %v", err)
+		}
+		s := strings.Split(photoID, ".")
+		dn, err := redis.String(conn.Do("HGET", "HT:"+s[0], "dn"))
+		if err != nil && err != redis.ErrNil {
+			cx.Errorf("GetTimeLine HLEN %v", err)
+		}
+		dt, err := strconv.ParseInt(v[0], 10, 64)
+		te := TLEntry{dt, s[0], dn, photoID, likes - 1, v[1] == "1"}
+		timeline = append(timeline, te)
+	}
+	return timeline, nil
 }
 
 // addUser adds the user to redis
