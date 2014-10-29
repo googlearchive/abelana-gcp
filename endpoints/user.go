@@ -52,11 +52,12 @@ func createUser(cx appengine.Context, user User) error {
 		cx.Errorf(" CreateUser %v %v", err, user.UserID)
 		return err
 	}
+	addUser(cx, user.UserID, user.DisplayName)
 	return nil
 }
 
-// CopyUserPhoto will copy the photo from, will likey be called from delayFunc
-func CopyUserPhoto(cx appengine.Context, url string, userID string) error {
+// copyUserPhoto will copy the photo from, will likey be called from delayFunc
+func copyUserPhoto(cx appengine.Context, url string, userID string) error {
 	// We want a larger photo
 	url = strings.Replace(url, "sz=50", "sz=2048", 1)
 

@@ -184,13 +184,12 @@ type AccToken struct {
 	HalfPW string // TODO FIXME -- make this go away
 	Iat    int64
 	Exp    int64
-	Email  string
+	Email  string // TODO FIXME REMOVE
 }
 
 // Access lets us know if we need another
 type Access interface {
 	Expired() bool
-	Mail() string
 	ID() string
 }
 

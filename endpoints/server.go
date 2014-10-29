@@ -19,6 +19,7 @@ import (
 
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,21 +52,35 @@ const (
 	timelineBatchSize = 100
 )
 
+// In redis we store the following:
+// IM:uuuuuu.ppppppp HASH an imageID
+//   date  is the date the photo was added
+//   flag  DON'T SHOW THIS TO OTHERS 'TIL REVIEW -- must get +2
+//   uuuuuu is the id of a user that likes the photo
+//   (Total count of likes is (HLEN k) -1)
+//
+// TL:uuuuuu LIST The timeline[max 2000] for each user. (list of photos)
+// HT:uuuuuu HASH
+//   dn is the displayName for the user.
+
+// In datastore we have the following:
+// User >> Photo >> Like
+//               >> Comments
+
 var delayFunc = delay.Func("test003", func(cx appengine.Context, x string) {
 	cx.Infof("delay happened " + x)
 })
 
-var delayCopyImage = delay.Func("CopyImage001", CopyUserPhoto)
-var delayAddPhoto = delay.Func("AddImage002", AddPhoto)
-var delayAddFollower = delay.Func("AddFollower03", addTheFollower)
+var delayCopyImage = delay.Func("CopyImage001", copyUserPhoto)
+var delayAddPhoto = delay.Func("AddImage002", addPhoto)
+var delayINowFollow = delay.Func("FollowByID03", iNowFollow)
 
-// User is the root structure for everything.  For RockStars, it will probably get too large to
-// memcache, so we'll skip that for now.
+// User is the root structure for everything.
 type User struct {
 	UserID      string
 	DisplayName string
 	Email       string
-	Followers   []string
+	Persons     []string
 }
 
 // Photo is how we keep images in Datastore
@@ -79,17 +94,16 @@ type ToLike struct {
 	UserID string
 }
 
-// Comment holds all comments
-type Comment struct {
-	FollowerID string `json:"followerid"`
-	Text       string `json:"text"`
-	Time       int64  `json:"time"`
+// ATOKJson is the json message for an Access Token (TEMPORARY - Until GitKit supports this)
+type ATOKJson struct {
+	Kind string `json:"kind"`
+	Atok string `json:"atok"`
 }
 
-// Comments returned from GetComments()
-type Comments struct {
-	Kind    string    `json:"kind"`
-	Entries []Comment `json:"entries"`
+// Status is what we return if we have nothing to return
+type Status struct {
+	Kind   string `json:"kind"`
+	Status string `json:"status"`
 }
 
 // TLEntry holds timeline entries
@@ -108,30 +122,31 @@ type Timeline struct {
 	Entries []TLEntry `json:"entries"`
 }
 
-// Follower holds information about our followers
-type Follower struct {
-	kind       string `json:"kind"`
-	FollowerID string `json:"followerid"`
-	Email      string `json:"email"`
-	Name       string `json:"name"`
+// Person holds information about our followers
+type Person struct {
+	kind     string `json:"kind,omitempty"`
+	PersonID string `json:"personid"`
+	Email    string `json:"email,omitempty"`
+	Name     string `json:"name"`
 }
 
-// Followers holds a list of our followers
-type Followers struct {
-	kind      string   `json:"kind"`
-	Followers []string `json:"followerid"`
+// Persons holds a list of our followers
+type Persons struct {
+	kind    string   `json:"kind"`
+	Persons []Person `json:"persons"`
 }
 
-// ATOKJson is the json message for an Access Token (TEMPORARY - Until GitKit supports this)
-type ATOKJson struct {
-	Kind string `json:"kind"`
-	Atok string `json:"atok"`
+// Comment holds all comments
+type Comment struct {
+	PersonID string `json:"personid"`
+	Text     string `json:"text"`
+	Time     int64  `json:"time"`
 }
 
-// Status is what we return if we have nothing to return
-type Status struct {
-	Kind   string `json:"kind"`
-	Status string `json:"status"`
+// Comments returned from GetComments()
+type Comments struct {
+	Kind    string    `json:"kind"`
+	Entries []Comment `json:"entries"`
 }
 
 // AppEngine middleware inserts a context where it's needed.
@@ -143,27 +158,27 @@ func init() {
 	m := martini.Classic()
 	m.Use(AppEngine)
 
-	m.Get("/user/:gittok/login/:displayName/:photoUrl", Login)                 // => ATOKJson
-	m.Get("/user/:atok/refresh", Aauth, Refresh)                               // => ATOKJson
-	m.Get("/user/:atok/useful", Aauth, GetSecretKey)                           // => Status
-	m.Delete("/user/:atok", Aauth, Wipeout)                                    // => Status
-	m.Post("/user/:atok/facebook/:fbkey", Aauth, Import)                       // => Status
-	m.Post("/user/:atok/plus/:plkey", Aauth, Import)                           // => Status
-	m.Post("/user/:atok/yahoo/:ykey", Aauth, Import)                           // => Status
-	m.Get("/user/:atok/follower", Aauth, GetFollowers)                         // => Followers
-	m.Put("/user/:atok/follower/:followerid", Aauth, AddFollower)              // => Status
-	m.Get("/user/:atok/follower/:followerid", Aauth, GetFollower)              // => Follower
-	m.Put("/user/:atok/follower/:email", Aauth, Follow)                        // => Status
-	m.Put("/user/atok/device/:regid", Aauth, Register)                         // => Status
-	m.Delete("/user/:atok/device/:regid", Aauth, Unregister)                   // => Status
-	m.Get("/user/:atok/timeline/:lastid", Aauth, GetTimeLine)                  // => Timeline
-	m.Get("/user/:atok/profile/:lastid", Aauth, GetMyProfile)                  // => Timeline
-	m.Get("/user/:atok/follower/:followerid/profile/:lastid", Aauth, FProfile) // => Timeline
-	m.Post("/photo/:atok/:photoid/comment/:text", Aauth, SetPhotoComments)     // => Status
-	m.Get("/photo/:atok/:photoid/comments", Aauth, GetPhotoComments)           // => Comments
-	m.Put("/photo/:atok/:photoid/like", Aauth, Like)                           // => Status
-	m.Delete("/photo/:atok/:photoid/like", Aauth, Unlike)                      // => Status
-	m.Get("/photo/:atok/:photoid/flag", Aauth, Flag)                           // => Status
+	m.Get("/user/:gittok/login/:displayName/:photoUrl", Login)                // => ATOKJson
+	m.Get("/user/:atok/refresh", Aauth, Refresh)                              // => ATOKJson
+	m.Get("/user/:atok/useful", Aauth, GetSecretKey)                          // => Status
+	m.Delete("/user/:atok", Aauth, Wipeout)                                   // => Status
+	m.Post("/user/:atok/following/facebook/:fbkey", Aauth, Import)            // => Status
+	m.Post("/user/:atok/following/plus/:plkey", Aauth, Import)                // => Status
+	m.Post("/user/:atok/following/yahoo/:ykey", Aauth, Import)                // => Status
+	m.Get("/user/:atok/following", Aauth, GetFollowing)                       // => Persons
+	m.Put("/user/:atok/following/:personid", Aauth, FollowByID)               // => Status
+	m.Get("/user/:atok/following/:personid", Aauth, GetPerson)                // => Person
+	m.Put("/user/:atok/follow/:email", Aauth, Follow)                         // => Status
+	m.Put("/user/atok/device/:regid", Aauth, Register)                        // => Status
+	m.Delete("/user/:atok/device/:regid", Aauth, Unregister)                  // => Status
+	m.Get("/user/:atok/timeline/:lastid", Aauth, GetTimeLine)                 // => Timeline
+	m.Get("/user/:atok/profile/:lastid", Aauth, GetMyProfile)                 // => Timeline
+	m.Get("/user/:atok/following/:personid/profile/:lastid", Aauth, FProfile) // => Timeline
+	m.Post("/photo/:atok/:photoid/comment/:text", Aauth, SetPhotoComments)    // => Status
+	m.Get("/photo/:atok/:photoid/comments", Aauth, GetPhotoComments)          // => Comments
+	m.Put("/photo/:atok/:photoid/like", Aauth, Like)                          // => Status
+	m.Delete("/photo/:atok/:photoid/like", Aauth, Unlike)                     // => Status
+	m.Get("/photo/:atok/:photoid/flag", Aauth, Flag)                          // => Status
 
 	m.Post("/photopush/:superid", PostPhoto) // "ok"
 
@@ -210,54 +225,107 @@ func replyOk(w http.ResponseWriter) {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // GetTimeLine - get the timeline for the user (token) : TlResp
-func GetTimeLine(cx appengine.Context, at Access, w http.ResponseWriter) {
+func GetTimeLine(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
+	var item string
 	timeline := []TLEntry{}
 
 	if !enableStubs {
+		hc, err := socket.Dial(cx, "tcp", server)
+		if err != nil {
+			cx.Errorf("GetTimeLine Dial %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer hc.Close()
+		conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
 
+		list, err := redis.Strings(conn.Do("LRANGE", "TL:"+at.ID(), 0, -1))
+		if err != nil && err != redis.ErrNil {
+			cx.Errorf("GetTimeLine %v", err)
+		}
+		ix := 0
+		lastid := p["lastid"]
+		if lastid != "0" {
+			for ix, item = range list {
+				if item == lastid {
+					break
+				}
+			}
+		}
+		timeline = make([]TLEntry, 0, timelineBatchSize)
+		for i := 0; i < timelineBatchSize && i+ix < len(list); i++ {
+			photoID := list[ix+i]
+
+			v, err := redis.Strings(conn.Do("HMGET", "IM:"+photoID, "date", at.ID(), "flag"))
+			if err != nil && err != redis.ErrNil {
+				cx.Errorf("GetTimeLine HMGET %v", err)
+			}
+			if v[2] != "" {
+				flags, err := strconv.Atoi(v[2])
+				if err == nil && flags > 1 {
+					continue // skip flag'd images
+				}
+			}
+			likes, err := redis.Int(conn.Do("HLEN", "IM:"+photoID))
+			if err != nil && err != redis.ErrNil {
+				cx.Errorf("GetTimeLine HLEN %v", err)
+			}
+			s := strings.Split(photoID, ".")
+			dn, err := redis.String(conn.Do("HGET", "HT:"+s[0], "dn"))
+			if err != nil && err != redis.ErrNil {
+				cx.Errorf("GetTimeLine HLEN %v", err)
+			}
+			dt, err := strconv.ParseInt(v[0], 10, 64)
+			te := TLEntry{dt, s[0], dn, photoID, likes - 1, v[1] == "1"}
+			timeline = append(timeline, te)
+		}
 	} else {
 		t := time.Now().Unix()
-		timeline = []TLEntry{
-			TLEntry{t - 200, "00001", "Les", "0001", 1, false},
-			TLEntry{t - 1000, "00001", "Les", "0002", 99, false},
-			TLEntry{t - 2500, "00001", "Les", "0003", 0, false},
-			TLEntry{t - 6040, "00001", "Les", "0004", 3, true},
-			TLEntry{t - 7500, "00001", "Les", "0005", 1, true},
-			TLEntry{t - 9300, "00001", "Les", "0006", 99, false},
-			TLEntry{t - 10200, "00001", "Les", "0007", 0, false},
-			TLEntry{t - 47003, "00001", "Les", "0008", 3, false},
-			TLEntry{t - 53002, "00001", "Les", "0009", 1, true},
-			TLEntry{t - 54323, "00001", "Les", "0010", 99, false},
-			TLEntry{t - 56112, "00001", "Les", "0011", 0, false},
-			TLEntry{t - 58243, "00001", "Les", "0004", 3, false},
-			TLEntry{t - 80201, "00001", "Les", "0001", 1, true},
-			TLEntry{t - 80500, "00001", "Les", "0002", 99, true},
-			TLEntry{t - 81200, "00001", "Les", "0003", 0, false},
-			TLEntry{t - 89302, "00001", "Les", "0005", 3, false},
-			TLEntry{t - 91200, "00001", "Les", "0007", 1, false},
-			TLEntry{t - 92343, "00001", "Les", "0006", 99, false},
-			TLEntry{t - 93233, "00001", "Les", "0011", 0, false},
-			TLEntry{t - 94322, "00001", "Les", "0009", 3, false},
-			TLEntry{t - 95323, "00001", "Les", "0002", 99, false},
-			TLEntry{t - 96734, "00001", "Les", "0003", 0, false},
-			TLEntry{t - 98033, "00001", "Les", "0004", 3, false},
-			TLEntry{t - 99334, "00001", "Les", "0005", 1, false},
-			TLEntry{t - 99993, "00001", "Les", "0006", 99, false},
-			TLEntry{t - 102304, "00001", "Les", "0007", 0, false},
-			TLEntry{t - 102750, "00001", "Les", "0008", 3, false},
-			TLEntry{t - 104333, "00001", "Les", "0009", 1, false},
-			TLEntry{t - 105323, "00001", "Les", "0010", 99, false},
-			TLEntry{t - 107323, "00001", "Les", "0011", 0, false},
-			TLEntry{t - 109323, "00001", "Les", "0004", 3, false},
-			TLEntry{t - 110000, "00001", "Les", "0001", 1, false},
-			TLEntry{t - 110133, "00001", "Les", "0002", 99, false},
-			TLEntry{t - 113444, "00001", "Les", "0003", 0, false},
-			TLEntry{t - 122433, "00001", "Les", "0005", 3, false},
-			TLEntry{t - 125320, "00001", "Les", "0007", 1, false},
-			TLEntry{t - 125325, "00001", "Les", "0006", 99, false},
-			TLEntry{t - 127555, "00001", "Les", "0011", 0, false},
-			TLEntry{t - 128333, "00001", "Les", "0009", 3, false},
-			TLEntry{t - 173404, "00001", "Les", "0005", 21, false}}
+		if p["lastid"] != "0" {
+			timeline = []TLEntry{
+				TLEntry{t - 200, "00001", "Les", "0001", 1, false},
+				TLEntry{t - 1000, "00001", "Les", "0002", 99, false},
+				TLEntry{t - 2500, "00001", "Les", "0003", 0, false},
+				TLEntry{t - 6040, "00001", "Les", "0004", 3, true},
+				TLEntry{t - 7500, "00001", "Les", "0005", 1, true},
+				TLEntry{t - 9300, "00001", "Les", "0006", 99, false},
+				TLEntry{t - 10200, "00001", "Les", "0007", 0, false},
+				TLEntry{t - 47003, "00001", "Les", "0008", 3, false},
+				TLEntry{t - 53002, "00001", "Les", "0009", 1, true},
+				TLEntry{t - 54323, "00001", "Les", "0010", 99, false},
+				TLEntry{t - 56112, "00001", "Les", "0011", 0, false},
+				TLEntry{t - 58243, "00001", "Les", "0004", 3, false},
+				TLEntry{t - 80201, "00001", "Les", "0001", 1, true},
+				TLEntry{t - 80500, "00001", "Les", "0002", 99, true},
+				TLEntry{t - 81200, "00001", "Les", "0003", 0, false},
+				TLEntry{t - 89302, "00001", "Les", "0005", 3, false},
+				TLEntry{t - 91200, "00001", "Les", "0007", 1, false},
+				TLEntry{t - 92343, "00001", "Les", "0006", 99, false},
+				TLEntry{t - 93233, "00001", "Les", "0011", 0, false},
+				TLEntry{t - 94322, "00001", "Les", "0009", 3, false}}
+		} else {
+			timeline = []TLEntry{
+				TLEntry{t - 95323, "00002", "Zafir", "0002", 99, false},
+				TLEntry{t - 96734, "00002", "Zafir", "0003", 0, false},
+				TLEntry{t - 98033, "00002", "Zafir", "0004", 3, false},
+				TLEntry{t - 99334, "00002", "Zafir", "0005", 1, false},
+				TLEntry{t - 99993, "00002", "Zafir", "0006", 99, false},
+				TLEntry{t - 102304, "00002", "Zafir", "0007", 0, false},
+				TLEntry{t - 102750, "00002", "Zafir", "0008", 3, false},
+				TLEntry{t - 104333, "00002", "Zafir", "0009", 1, false},
+				TLEntry{t - 105323, "00002", "Zafir", "0010", 99, false},
+				TLEntry{t - 107323, "00002", "Zafir", "0011", 0, false},
+				TLEntry{t - 109323, "00002", "Zafir", "0004", 3, false},
+				TLEntry{t - 110000, "00002", "Zafir", "0001", 1, false},
+				TLEntry{t - 110133, "00002", "Zafir", "0002", 99, false},
+				TLEntry{t - 113444, "00002", "Zafir", "0003", 0, false},
+				TLEntry{t - 122433, "00002", "Zafir", "0005", 3, false},
+				TLEntry{t - 125320, "00002", "Zafir", "0007", 1, false},
+				TLEntry{t - 125325, "00002", "Zafir", "0006", 99, false},
+				TLEntry{t - 127555, "00002", "Zafir", "0011", 0, false},
+				TLEntry{t - 128333, "00002", "Zafir", "0009", 3, false},
+				TLEntry{t - 173404, "00002", "Zafir", "0005", 21, false}}
+		}
 	}
 	tl := &Timeline{"abelana#timeline", timeline}
 	replyJSON(w, tl)
@@ -376,66 +444,69 @@ func Import(cx appengine.Context, at Access, p martini.Params, w http.ResponseWr
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-// Follower
+// Person
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-// GetFollowers - A list of our followers (AToken) : FlResp
-func GetFollowers(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	fl := &Followers{}
+// GetFollowing - A list of our followers (AToken) : FlResp
+func GetFollowing(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
+	fl := &Persons{}
 
 	if !enableStubs {
 		k1 := datastore.NewKey(cx, "User", at.ID(), 0, nil)
 		user := &User{}
 		err := datastore.Get(cx, k1, &user)
 		if err != nil {
-			cx.Errorf("GetFollowers %v %v", at.ID(), err)
+			cx.Errorf("GetFollowing %v %v", at.ID(), err)
 			replyOk(w)
 		}
-		fl = &Followers{"abelana#followerList", user.Followers}
+		//		fl = &Persons{"abelana#followerList", user.Persons}
 	} else {
-		fl = &Followers{"abelana#followerList", []string{"00001", "12730648828453578083"}}
+		fl = &Persons{"abelana#followerList",
+			[]Person{
+				Person{"abelana#follower", "00001", "", "Les"},
+				Person{"abelana#follower", "12730648828453578083", "", "Zafir"}}}
 	}
 	replyJSON(w, fl)
 }
 
-// GetFollower -- find out about someone  : Follower
-func GetFollower(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	f := &Follower{}
+// GetPerson -- find out about someone  : Person
+func GetPerson(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
+	f := &Person{}
 
 	if !enableStubs {
-		k1 := datastore.NewKey(cx, "User", p["followerid"], 0, nil)
+		k1 := datastore.NewKey(cx, "User", p["personid"], 0, nil)
 		user := &User{}
 		err := datastore.Get(cx, k1, &user)
 		if err != nil {
-			cx.Errorf("GetFollower %v %v %v", p["followerid"], p["followerid"], err)
+			cx.Errorf("GetPerson %v %v %v", p["personid"], p["personid"], err)
 			replyOk(w)
 		}
-		f = &Follower{"abelana#follower", user.UserID, user.Email, user.DisplayName}
+		f = &Person{"abelana#follower", user.UserID, user.Email, user.DisplayName}
 	} else {
-		f = &Follower{"abelana#follower", "00001", "lesv@abelana-app.com", "Les Vogel"}
+		f = &Person{"abelana#follower", "00001", "lesv@abelana-app.com", "Les Vogel"}
 	}
 	replyJSON(w, f)
 }
 
-// AddFollower - will tell us about a new possible follower (FrReq) : Status
-func AddFollower(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
+// FollowByID - will tell us about a new possible follower (FrReq) : Status
+func FollowByID(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
 	k1 := datastore.NewKey(cx, "User", at.ID(), 0, nil)
 	user := &User{}
 	err := datastore.Get(cx, k1, &user)
 	if err != nil {
-		cx.Errorf("AddFollower %v %v %v", at.ID(), p["followerid"], err)
+		cx.Errorf("FollowByID %v %v %v", at.ID(), p["personid"], err)
 		replyOk(w)
 	}
-	sl := user.Followers
+	sl := user.Persons
 	if len(sl) == cap(sl) {
 		newSl := make([]string, len(sl), len(sl)+1)
 		copy(newSl, sl)
 		sl = newSl
 	}
-	user.Followers = sl[0 : len(sl)+1]
-	user.Followers[len(sl)] = p["followerid"]
+	user.Persons = sl[0 : len(sl)+1]
+	user.Persons[len(sl)] = p["personid"]
 	_, err = datastore.Put(cx, k1, &user)
-	delayAddFollower.Call(cx, at.ID(), p["followerid"])
+	delayINowFollow.Call(cx, at.ID(), p["personid"])
 	replyOk(w)
 }
 
@@ -486,24 +557,13 @@ func GetPhotoComments(cx appengine.Context, at Access, p martini.Params, w http.
 func Like(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
 	s := strings.Split(p["photoid"], ".")
 
-	hc, err := socket.Dial(cx, "tcp", server)
-	if err != nil {
-		cx.Errorf("Like Dial %v", err)
-		return
-	}
-	defer hc.Close()
-	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
-	photo := s[0] + "." + s[1]
-	_, err = redis.Int(conn.Do("INCR", photo))
-	if err != nil && err != redis.ErrNil {
-		cx.Errorf("Like %v", err)
-	}
+	like(cx, at.ID(), s[0]+"."+s[1])
 
 	k1 := datastore.NewKey(cx, "User", s[0], 0, nil)
 	k2 := datastore.NewKey(cx, "Photo", s[1], 0, k1)
 	k3 := datastore.NewKey(cx, "Like", at.ID(), 0, k2)
 	l := &ToLike{at.ID()}
-	_, err = datastore.Put(cx, k3, l)
+	_, err := datastore.Put(cx, k3, l)
 	if err != nil {
 		cx.Errorf("Like: %v %v", k3, err)
 	}
@@ -522,24 +582,16 @@ func Unlike(cx appengine.Context, at Access, p martini.Params, w http.ResponseWr
 		replyOk(w)
 		return
 	}
-
-	hc, err := socket.Dial(cx, "tcp", server)
-	if err != nil {
-		cx.Errorf("Unlike Dial %v", err)
-		return
-	}
-	defer hc.Close()
-	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
-	photo := s[0] + "." + s[1]
-	_, err = redis.Int(conn.Do("DECR", photo))
-	if err != nil && err != redis.ErrNil {
-		cx.Errorf("Like %v", err)
-	}
+	unlike(cx, at.ID(), s[0]+"."+s[1])
 	replyOk(w)
 }
 
 // Flag will bring this to the administrators attention.
 func Flag(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
+	flag(cx, at.ID(), p["photoid"])
+
+	//  We should also write something to Datastore
+
 	replyOk(w)
 }
 
@@ -549,6 +601,7 @@ func Flag(cx appengine.Context, at Access, p martini.Params, w http.ResponseWrit
 
 // Wipeout will erase all data you are working on. (Atok) : Status
 func Wipeout(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
+
 	replyOk(w)
 }
 

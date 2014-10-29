@@ -38,31 +38,13 @@ func redisInit() {
 	}
 }
 
-// AddTheUser to redis
-func AddTheUser(cx appengine.Context, userID string) {
-
-	hc, err := socket.Dial(cx, "tcp", server)
-	if err != nil {
-		cx.Errorf("AddTheUser Dial %v", err)
-	}
-	defer hc.Close()
-	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
-
-	// See if we have done this already, block others.
-	_, err = redis.Bool(conn.Do("SET", userID, "1", "NX"))
-	if err != nil {
-		cx.Errorf("AddTheUser Exists %v", err)
-		return
-	}
-}
-
-// addTheFolower is Called when we need to add a folower
-func addTheFollower(cx appengine.Context, userID, followerID string) {
+// iNowFollow is Called when we need to add a folower
+func iNowFollow(cx appengine.Context, userID, followerID string) {
 
 }
 
-// AddPhoto is called to add a photo.
-func AddPhoto(cx appengine.Context, superID string) {
+// addPhoto is called to add a photo.
+func addPhoto(cx appengine.Context, superID string) {
 
 	s := strings.Split(superID, ".")
 	if len(s) != 3 {
@@ -84,49 +66,29 @@ func AddPhoto(cx appengine.Context, superID string) {
 	defer hc.Close()
 	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
 
-	photo := s[0] + "." + s[1]
-	ok, err := redis.String(conn.Do("SET", photo, "0", "NX")) // Set Likes to 0 if new
-	if err != nil && err != redis.ErrNil {
-		cx.Errorf("AddPhoto Exists %v", err)
-		return
-	}
-	if ok != "OK" {
-		cx.Errorf("AddPhoto duplicate %v", ok)
-		return
+	photoID := s[0] + "." + s[1]
+	set, err := redis.Int(conn.Do("HSETNX", "IM:"+photoID, "date", p.Date)) // Set Date
+	if (err != nil && err != redis.ErrNil) || set == 0 {
+		cx.Errorf("AddPhoto D duplicate %v %v", err, set)
+		return // block duplicate requests
 	}
 
-	ok, err = redis.String(conn.Do("SET", photo+"D", p.Date)) // Set Likes to 0 if new
-	if err != nil && err != redis.ErrNil {
-		cx.Errorf("AddPhoto D Exists %v", err)
-		return
-	}
-	if ok != "OK" {
-		cx.Errorf("AddPhoto D duplicate %v", ok)
-		return
-	}
+	// Consider that at some point these should be done in batches of 100 or so. TODO
 
-	ok, err = redis.String(conn.Do("SET", photo+"N", u.DisplayName)) // Set Likes to 0 if new
-	if err != nil && err != redis.ErrNil {
-		cx.Errorf("AddPhoto N Exists %v", err)
-		return
-	}
-	if ok != "OK" {
-		cx.Errorf("AddPhoto N duplicate %v", ok)
-		return
-	}
-
-	// TODO -- at some point these should be done in batches of 100 or so.
-	for _, followerID := range u.Followers {
-		conn.Send("LPUSH", followerID+"P", photo)
+	// Add to each follower's list
+	for _, personID := range u.Persons {
+		conn.Send("LPUSH", "TL:"+personID, photoID)
 	}
 	conn.Flush()
-	for _, followerID := range u.Followers {
+
+	// Check the result and adjust list if nescessary.
+	for _, personID := range u.Persons {
 		v, err := redis.Int(conn.Receive())
 		if err != nil && err != redis.ErrNil {
-			cx.Errorf("AddPhoto for %v %v", followerID+"P", err)
+			cx.Errorf("AddPhoto for %v %v", "TL:"+personID, err)
 		} else {
 			if v > 2000 {
-				_, err := conn.Do("RPOP", followerID)
+				_, err := conn.Do("RPOP", "TL:"+personID)
 				if err != nil {
 					cx.Errorf("AddPhoto RPOP %v", err)
 				}
@@ -136,4 +98,68 @@ func AddPhoto(cx appengine.Context, superID string) {
 	k1 := datastore.NewKey(cx, "User", s[0], 0, nil)
 	k2 := datastore.NewKey(cx, "Photo", s[1], 0, k1)
 	_, err = datastore.Put(cx, k2, p)
+	if err != nil {
+		cx.Errorf("AddPhoto datastore %v", err)
+	}
+}
+
+// addUser adds the user to redis
+func addUser(cx appengine.Context, userID, displayName string) {
+	hc, err := socket.Dial(cx, "tcp", server)
+	if err != nil {
+		cx.Errorf("addUser Dial %v", err)
+	}
+	defer hc.Close()
+	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
+
+	// See if we have done this already, block others.
+	_, err = conn.Do("HSET", "HT:"+userID, "dn", displayName)
+	if err != nil {
+		cx.Errorf("addUser Exists %v", err)
+	}
+}
+
+// like the user on redis
+func like(cx appengine.Context, userID, photoID string) {
+	hc, err := socket.Dial(cx, "tcp", server)
+	if err != nil {
+		cx.Errorf("like Dial %v", err)
+		return
+	}
+	defer hc.Close()
+	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
+	_, err = redis.Int(conn.Do("HSET", "IM:"+photoID, userID, "1"))
+	if err != nil && err != redis.ErrNil {
+		cx.Errorf("like %v", err)
+	}
+}
+
+// unlike
+func unlike(cx appengine.Context, userID, photoID string) {
+	hc, err := socket.Dial(cx, "tcp", server)
+	if err != nil {
+		cx.Errorf("unlike Dial %v", err)
+		return
+	}
+	defer hc.Close()
+	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
+	_, err = redis.Int(conn.Do("HDEL", "IM:"+photoID, userID))
+	if err != nil && err != redis.ErrNil {
+		cx.Errorf("unlike %v", err)
+	}
+}
+
+// flag will tell us that things may not be quite right with this image.
+func flag(cx appengine.Context, userID, photoID string) {
+	hc, err := socket.Dial(cx, "tcp", server)
+	if err != nil {
+		cx.Errorf("unlike Dial %v", err)
+		return
+	}
+	defer hc.Close()
+	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
+	_, err = redis.Int(conn.Do("HINCRBY", "IM:"+photoID, "flag", 1))
+	if err != nil && err != redis.ErrNil {
+		cx.Errorf("unlike %v", err)
+	}
 }

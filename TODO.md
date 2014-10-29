@@ -1,21 +1,21 @@
-## TODO List -- Missing Code
+## TODO List - Missing Code
 * Endpoints
-  * [ ] GetTimeLine
   * [ ] GetMyProfile
-  * [ ] FProfile - Get a specific followers entries only
-  * [ ] Import
-    * [ ] Facebook
-    * [ ] G+
-    * [ ] Yahoo
-  * [ ] GetFollowers
-  * [ ] GetFollower
-  * [ ] AddFollower (partially implemented)
   * [ ] Follow (given email)
+i * [ ] AddFollower (partially implemented)
+  * [ ] FProfile - Get a specific followers entries only
+  * [x] GetFollowers (just needs to be enabled)
+  * [ ] GetFollowers add Names.
+  * [x] GetFollower (just needs to be enabled)
   * [ ] Flag
   * [ ] Wipeout
   * [ ] Register GCM
   * [ ] Unregister GCM
-* [ ] Add I Like to Timeline
+  * [ ] Import
+    * [ ] Facebook
+    * [ ] G+
+    * [ ] Yahoo
+
 * [ ] Redis Connection Timeouts (if any)
 * [ ] FIXME Backdoor is currently enabled
 * [ ] Redis - Batch LPUSH's
@@ -23,3 +23,5 @@
 * [ ] FIXME Remove HalfPW from AccToken
 * [ ] FIXME tokens.VerifyToken isn't using Certs.
 * [ ] tokens.Login should verify Audience is correct
+* [ ] Backup the Redis DB to it's own bucket on CloudStorage every 15 minutes.
+* [ ] Move configuration from static info to a config file
