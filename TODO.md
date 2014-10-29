@@ -1,13 +1,13 @@
 ## TODO List - Missing Code
 * Endpoints
-  * [ ] GetMyProfile
+  * [x] GetMyProfile
   * [ ] Follow (given email)
-i * [ ] AddFollower (partially implemented)
-  * [ ] FProfile - Get a specific followers entries only
+  * [ ] AddFollower (partially implemented)
+  * [x] FProfile - Get a specific followers entries only
   * [x] GetFollowers (just needs to be enabled)
   * [ ] GetFollowers add Names.
   * [x] GetFollower (just needs to be enabled)
-  * [ ] Flag
+  * [x] Flag
   * [ ] Wipeout
   * [ ] Register GCM
   * [ ] Unregister GCM

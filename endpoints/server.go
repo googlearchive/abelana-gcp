@@ -19,6 +19,7 @@ import (
 
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -155,27 +156,27 @@ func init() {
 	m := martini.Classic()
 	m.Use(AppEngine)
 
-	m.Get("/user/:gittok/login/:displayName/:photoUrl", Login)                // => ATOKJson
-	m.Get("/user/:atok/refresh", Aauth, Refresh)                              // => ATOKJson
-	m.Get("/user/:atok/useful", Aauth, GetSecretKey)                          // => Status
-	m.Delete("/user/:atok", Aauth, Wipeout)                                   // => Status
-	m.Post("/user/:atok/following/facebook/:fbkey", Aauth, Import)            // => Status
-	m.Post("/user/:atok/following/plus/:plkey", Aauth, Import)                // => Status
-	m.Post("/user/:atok/following/yahoo/:ykey", Aauth, Import)                // => Status
-	m.Get("/user/:atok/following", Aauth, GetFollowing)                       // => Persons
-	m.Put("/user/:atok/following/:personid", Aauth, FollowByID)               // => Status
-	m.Get("/user/:atok/following/:personid", Aauth, GetPerson)                // => Person
-	m.Put("/user/:atok/follow/:email", Aauth, Follow)                         // => Status
-	m.Put("/user/atok/device/:regid", Aauth, Register)                        // => Status
-	m.Delete("/user/:atok/device/:regid", Aauth, Unregister)                  // => Status
-	m.Get("/user/:atok/timeline/:lastid", Aauth, GetTimeLine)                 // => Timeline
-	m.Get("/user/:atok/profile/:lastid", Aauth, GetMyProfile)                 // => Timeline
-	m.Get("/user/:atok/following/:personid/profile/:lastid", Aauth, FProfile) // => Timeline
-	m.Post("/photo/:atok/:photoid/comment/:text", Aauth, SetPhotoComments)    // => Status
-	m.Get("/photo/:atok/:photoid/comments", Aauth, GetPhotoComments)          // => Comments
-	m.Put("/photo/:atok/:photoid/like", Aauth, Like)                          // => Status
-	m.Delete("/photo/:atok/:photoid/like", Aauth, Unlike)                     // => Status
-	m.Get("/photo/:atok/:photoid/flag", Aauth, Flag)                          // => Status
+	m.Get("/user/:gittok/login/:displayName/:photoUrl", Login)                  // => ATOKJson
+	m.Get("/user/:atok/refresh", Aauth, Refresh)                                // => ATOKJson
+	m.Get("/user/:atok/useful", Aauth, GetSecretKey)                            // => Status
+	m.Delete("/user/:atok", Aauth, Wipeout)                                     // => Status
+	m.Post("/user/:atok/following/facebook/:fbkey", Aauth, Import)              // => Status
+	m.Post("/user/:atok/following/plus/:plkey", Aauth, Import)                  // => Status
+	m.Post("/user/:atok/following/yahoo/:ykey", Aauth, Import)                  // => Status
+	m.Get("/user/:atok/following", Aauth, GetFollowing)                         // => Persons
+	m.Put("/user/:atok/following/:personid", Aauth, FollowByID)                 // => Status
+	m.Get("/user/:atok/following/:personid", Aauth, GetPerson)                  // => Person
+	m.Put("/user/:atok/follow/:email", Aauth, Follow)                           // => Status
+	m.Put("/user/atok/device/:regid", Aauth, Register)                          // => Status
+	m.Delete("/user/:atok/device/:regid", Aauth, Unregister)                    // => Status
+	m.Get("/user/:atok/timeline/:lastid", Aauth, GetTimeLine)                   // => Timeline
+	m.Get("/user/:atok/profile/:lastdate", Aauth, GetMyProfile)                 // => Timeline
+	m.Get("/user/:atok/following/:personid/profile/:lastdate", Aauth, FProfile) // => Timeline
+	m.Post("/photo/:atok/:photoid/comment/:text", Aauth, SetPhotoComments)      // => Status
+	m.Get("/photo/:atok/:photoid/comments", Aauth, GetPhotoComments)            // => Comments
+	m.Put("/photo/:atok/:photoid/like", Aauth, Like)                            // => Status
+	m.Delete("/photo/:atok/:photoid/like", Aauth, Unlike)                       // => Status
+	m.Get("/photo/:atok/:photoid/flag", Aauth, Flag)                            // => Status
 
 	m.Post("/photopush/:superid", PostPhoto) // "ok"
 
@@ -265,18 +266,16 @@ func GetTimeLine(cx appengine.Context, at Access, p martini.Params, w http.Respo
 }
 
 // GetMyProfile - Get my entries only (token) : TlResp
-func GetMyProfile(cx appengine.Context, at Access, w http.ResponseWriter) {
-	timeline := []TLEntry{}
+func GetMyProfile(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
+	var err error
+	var timeline []TLEntry
 
 	if !enableStubs {
-		k1 := datastore.NewKey(cx, "User", at.ID(), 0, nil)
-		user := &User{}
-		err := datastore.Get(cx, k1, &user)
+		timeline, err = profileForUser(cx, at.ID(), p["lastdate"])
 		if err != nil {
-			cx.Errorf("GetMyProfile %v %v", at.ID(), err)
-			replyOk(w)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
-
 	} else {
 		t := time.Now().Unix()
 		timeline = []TLEntry{
@@ -294,12 +293,16 @@ func GetMyProfile(cx appengine.Context, at Access, w http.ResponseWriter) {
 
 // FProfile - Get a specific followers entries only (TlfReq) : TlResp
 func FProfile(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	timeline := []TLEntry{}
+	var err error
+	var timeline []TLEntry
 
 	if !enableStubs {
-		k1 := datastore.NewKey(cx, "User", at.ID(), 0, nil)
-		user := &User{}
-		datastore.Get(cx, k1, &user)
+		personID := p["personid"]
+		timeline, err = profileForUser(cx, personID, p["lastdate"])
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
 	} else {
 		t := time.Now().Unix()
@@ -314,6 +317,38 @@ func FProfile(cx appengine.Context, at Access, p martini.Params, w http.Response
 	}
 	tl := &Timeline{"abelana#timeline", timeline}
 	replyJSON(w, tl)
+}
+
+func profileForUser(cx appengine.Context, userID, lastdate string) ([]TLEntry, error) {
+	timeline := []TLEntry{}
+
+	k1 := datastore.NewKey(cx, "User", userID, 0, nil)
+	user := &User{}
+	err := datastore.Get(cx, k1, &user)
+	if err != nil {
+		cx.Errorf("profileForUser Get1 %v %v", userID, err)
+	}
+	q := datastore.NewQuery("Photo").Ancestor(k1)
+	if lastdate != "" && lastdate != "0" {
+		lastDate, err := strconv.ParseInt(lastdate, 10, 64)
+		if err != nil {
+			cx.Errorf("profileForUser ParseInt %v %v %v", userID, lastDate, err)
+		}
+		q = q.Filter("", lastDate)
+	}
+	q = q.Order("-Date").Limit(timelineBatchSize * 3)
+	var photos []Photo
+	_, err = q.GetAll(cx, &photos)
+	if err != nil {
+		cx.Errorf("profileForUser get2 %v %v", userID, err)
+	}
+	timeline = make([]TLEntry, 0, timelineBatchSize*3)
+
+	for _, p := range photos {
+		te := TLEntry{p.Date, userID, user.DisplayName, p.PhotoID, -1, false} // don't return anything for likes
+		timeline = append(timeline, te)
+	}
+	return timeline, nil
 }
 
 // PostPhoto lets us know that we have a photo, we then tell both DataStore and Redis
