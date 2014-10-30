@@ -44,8 +44,8 @@ const (
 	authEmail         = "abelana-222@appspot.gserviceaccount.com"
 	projectID         = "abelana-222"
 	bucket            = "abelana-in"
-	redisInt          = "10.240.85.221:6379"
-	redisExt          = "23.251.150.167:6379"
+	redisInt          = "10.240.166.239:6379"
+	redisExt          = "146.148.88.48:6379"
 	uploadRetries     = 5
 	timelineBatchSize = 100
 )
@@ -147,6 +147,12 @@ type Comments struct {
 	Entries []Comment `json:"entries"`
 }
 
+// Stats contains usefull user statistics
+type Stats struct {
+	Following int `json:"following"`
+	Followers int `json:"followers"`
+}
+
 // AppEngine middleware inserts a context where it's needed.
 func AppEngine(c martini.Context, r *http.Request) {
 	c.MapTo(appengine.NewContext(r), (*appengine.Context)(nil))
@@ -167,7 +173,8 @@ func init() {
 	m.Put("/user/:atok/following/:personid", Aauth, FollowByID)                 // => Status
 	m.Get("/user/:atok/following/:personid", Aauth, GetPerson)                  // => Person
 	m.Put("/user/:atok/follow/:email", Aauth, Follow)                           // => Status
-	m.Put("/user/atok/device/:regid", Aauth, Register)                          // => Status
+	m.Put("/user/:atok/device/:regid", Aauth, Register)                         // => Status
+	m.Get("/user/:atok/stats", Aauth, Statistics)                               // => Stats
 	m.Delete("/user/:atok/device/:regid", Aauth, Unregister)                    // => Status
 	m.Get("/user/:atok/timeline/:lastid", Aauth, GetTimeLine)                   // => Timeline
 	m.Get("/user/:atok/profile/:lastdate", Aauth, GetMyProfile)                 // => Timeline
@@ -319,6 +326,8 @@ func FProfile(cx appengine.Context, at Access, p martini.Params, w http.Response
 	replyJSON(w, tl)
 }
 
+// profileForUser will get the 300 most recent photos from the user, we don't provide any info
+// on likes as that would require many trips to the datastore making the call really slow.
 func profileForUser(cx appengine.Context, userID, lastdate string) ([]TLEntry, error) {
 	timeline := []TLEntry{}
 
@@ -349,43 +358,6 @@ func profileForUser(cx appengine.Context, userID, lastdate string) ([]TLEntry, e
 		timeline = append(timeline, te)
 	}
 	return timeline, nil
-}
-
-// PostPhoto lets us know that we have a photo, we then tell both DataStore and Redis
-func PostPhoto(cx appengine.Context, p martini.Params, w http.ResponseWriter, rq *http.Request) string {
-	cx.Infof("PostPhoto %v", p["superid"])
-	otok := rq.Header.Get("Authorization")
-	if !appengine.IsDevAppServer() {
-		ok, err := authorized(cx, otok)
-		if !ok {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return ``
-		}
-	}
-	s := strings.Split(p["superid"], ".")
-	if len(s) == 3 { // We only need to call for userid.photoID.webp
-		delayAddPhoto.Call(cx, p["superid"])
-	}
-	return `ok`
-}
-
-func authorized(cx appengine.Context, token string) (bool, error) {
-	if fs := strings.Fields(token); len(fs) == 2 && fs[0] == "Bearer" {
-		token = fs[1]
-	} else {
-		return false, nil
-	}
-
-	svc, err := auth.New(urlfetch.Client(cx))
-	if err != nil {
-		return false, err
-	}
-	tok, err := svc.Tokeninfo().Access_token(token).Do()
-	if err != nil {
-		return false, err
-	}
-	cx.Infof("  tok %v", tok)
-	return tok.Email == authEmail, nil
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -469,6 +441,12 @@ func Follow(cx appengine.Context, at Access, p martini.Params, w http.ResponseWr
 	replyOk(w)
 }
 
+// Statistics will tell you about a user
+func Statistics(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
+	st := &Stats{300, 30}
+	replyJSON(w, st)
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Photo
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -547,6 +525,43 @@ func Flag(cx appengine.Context, at Access, p martini.Params, w http.ResponseWrit
 	//  We should also write something to Datastore
 
 	replyOk(w)
+}
+
+// PostPhoto lets us know that we have a photo, we then tell both DataStore and Redis
+func PostPhoto(cx appengine.Context, p martini.Params, w http.ResponseWriter, rq *http.Request) string {
+	cx.Infof("PostPhoto %v", p["superid"])
+	otok := rq.Header.Get("Authorization")
+	if !appengine.IsDevAppServer() {
+		ok, err := authorized(cx, otok)
+		if !ok {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return ``
+		}
+	}
+	s := strings.Split(p["superid"], ".")
+	if len(s) == 3 { // We only need to call for userid.photoID.webp
+		delayAddPhoto.Call(cx, p["superid"])
+	}
+	return `ok`
+}
+
+func authorized(cx appengine.Context, token string) (bool, error) {
+	if fs := strings.Fields(token); len(fs) == 2 && fs[0] == "Bearer" {
+		token = fs[1]
+	} else {
+		return false, nil
+	}
+
+	svc, err := auth.New(urlfetch.Client(cx))
+	if err != nil {
+		return false, err
+	}
+	tok, err := svc.Tokeninfo().Access_token(token).Do()
+	if err != nil {
+		return false, err
+	}
+	cx.Infof("  tok %v", tok)
+	return tok.Email == authEmail, nil
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

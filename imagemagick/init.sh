@@ -60,9 +60,5 @@ cd imagemagick
 GOPATH=$PWD/Godeps/_workspace go build
 touch ~/logs
 
-# generate cert.pem and key.pem
-export HOST=`grep Google /etc/hosts | awk '{print $2}'`
-go run /usr/local/go/src/pkg/crypto/tls/generate_cert.go --host=$HOST
-
 # start running
 ./imagemagick --debug=1 >> ~/logs 2>&1 &
