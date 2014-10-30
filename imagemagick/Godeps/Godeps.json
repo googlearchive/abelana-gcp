@@ -1,5 +1,5 @@
 {
-	"ImportPath": "github.com/GoogleCloudPlatform/cloud-abelana-go/imagemagick",
+	"ImportPath": "github.com/GoogleCloudPlatform/abelana-gcp/imagemagick",
 	"GoVersion": "devel +8f36a32a9d03 Fri Sep 26 11:02:09 2014 +1000",
 	"Deps": [
 		{
@@ -33,8 +33,9 @@
 			"Rev": "725eb0907b649c438e0e8f1601648597141fb66c"
 		},
 		{
-			"ImportPath": "github.com/campoy/httplog",
-			"Rev": "20972d7f0bcc918704c5d818f5ca9927a9ca659c"
+			"ImportPath": "github.com/gographics/imagick/imagick",
+			"Comment": "0.0.3",
+			"Rev": "4da6ffa5d7e87ef779d976850035cc19594eb946"
 		},
 		{
 			"ImportPath": "github.com/golang/oauth2",

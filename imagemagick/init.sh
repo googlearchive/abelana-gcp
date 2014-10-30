@@ -1,3 +1,22 @@
+# to start a new instance
+# gcloud compute --project "abelana-222" instances create "imagick2" --zone "us-central1-a" --machine-type "n1-standard-1" --network "default" --maintenance-policy "MIGRATE" --scopes "https://www.googleapis.com/auth/userinfo.email" "https://www.googleapis.com/auth/devstorage.read_write" --image "https://www.googleapis.com/compute/v1/projects/debian-cloud/global/images/backports-debian-7-wheezy-v20141021" --no-boot-disk-auto-delete
+#
+# more readable:
+#   gcloud compute
+#     --project "abelana-222"
+#     instances create "imagick"
+#     --zone "us-central1-a"
+#     --machine-type "n1-standard-1"
+#     --network "default"
+#     --maintenance-policy "MIGRATE"
+#     --scopes
+#       "https://www.googleapis.com/auth/userinfo.email"
+#       "https://www.googleapis.com/auth/devstorage.read_write"
+#     --image "https://www.googleapis.com/compute/v1/projects/debian-cloud/global/images/backports-debian-7-wheezy-v20141021"
+#     --no-boot-disk-auto-delete
+#
+# then ssh into it and execute:
+#   gsutil cp gs://abelana-code/imagemagick/init.sh . && bash init.sh
 set -e
 export DEBIAN_FRONTEND=noninteractive
 
@@ -17,6 +36,7 @@ make
 sudo make install
 
 # install latest version of imagemagick
+cd
 wget http://www.imagemagick.org/download/ImageMagick.tar.gz
 tar xvzf ImageMagick.tar.gz
 cd ImageMagick-*
@@ -24,8 +44,6 @@ cd ImageMagick-*
 make
 sudo make install
 sudo ldconfig /usr/local/lib
-# not really needed
-# make check
 
 # install latest go version
 cd
