@@ -61,4 +61,4 @@ GOPATH=$PWD/Godeps/_workspace go build
 touch ~/logs
 
 # start running
-./imagemagick --debug=1 >> ~/logs 2>&1 &
+./imagemagick >> ~/logs 2>&1 &
