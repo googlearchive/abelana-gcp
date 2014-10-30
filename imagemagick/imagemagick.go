@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"time"
 
 	"runtime"
 	"strings"
@@ -28,44 +29,40 @@ const (
 	authEmail     = "abelana-222@appspot.gserviceaccount.com"
 )
 
-// map with the suffixes and sizes to generate
-var sizes = map[string]struct{ x, y uint }{
-	"a": {480, 800},
-	"b": {768, 768},
-	"c": {1080, 1080},
-	"d": {1440, 1440},
-	"e": {1200, 1200},
-	"f": {1536, 1536},
-	"g": {720, 720},
-	"h": {640, 640},
-	"i": {750, 750},
-}
+var (
+	// map with the suffixes and sizes to generate
+	sizes = map[string]struct{ x, y uint }{
+		"a": {480, 800},
+		"b": {768, 768},
+		"c": {1080, 1080},
+		"d": {1440, 1440},
+		"e": {1200, 1200},
+		"f": {1536, 1536},
+		"g": {720, 720},
+		"h": {640, 640},
+		"i": {750, 750},
+	}
+
+	ctx context.Context
+)
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
 
 	transport := google.NewComputeEngineConfig("").NewTransport()
-	ctx := cloud.NewContext(projectID, &http.Client{Transport: transport})
+	ctx = cloud.NewContext(projectID, &http.Client{Transport: transport})
 
-	err := http.ListenAndServe(listenAddress, &server{ctx})
+	http.HandleFunc("/healthcheck", func(http.ResponseWriter, *http.Request) {})
+	http.HandleFunc("/", notificationHandler)
+	log.Println("server about to start listening on", listenAddress)
+	err := http.ListenAndServe(listenAddress, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-type server struct{ ctx context.Context }
-
-func (s server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
-	case "/healthcheck":
-		return
-	case "/notice/abelana-in":
-	default:
-		http.NotFound(w, r)
-		return
-	}
-
+func notificationHandler(w http.ResponseWriter, r *http.Request) {
 	bucket, name := r.PostFormValue("bucket"), r.PostFormValue("name")
 	if bucket == "" || name == "" {
 		http.Error(w, "missing bucket or name", http.StatusBadRequest)
@@ -81,7 +78,10 @@ func (s server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.processImage(bucket, name); err != nil {
+	start := time.Now()
+	defer func() { log.Printf("done in %v", time.Since(start)) }()
+
+	if err := processImage(bucket, name); err != nil {
 		// TODO: should this remove uploaded images?
 		log.Println(err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -94,8 +94,8 @@ func (s server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s server) processImage(bucket, name string) error {
-	r, err := storage.NewReader(s.ctx, bucket, name)
+func processImage(bucket, name string) error {
+	r, err := storage.NewReader(ctx, bucket, name)
 	if err != nil {
 		return fmt.Errorf("storage reader: %v", err)
 	}
@@ -106,6 +106,8 @@ func (s server) processImage(bucket, name string) error {
 	}
 
 	wand := imagick.NewMagickWand()
+	defer wand.Destroy()
+
 	wand.ReadImageBlob(img)
 	if err := wand.SetImageFormat("WEBP"); err != nil {
 		return fmt.Errorf("set WEBP format: %v", err)
@@ -113,8 +115,10 @@ func (s server) processImage(bucket, name string) error {
 
 	errc := make(chan error, len(sizes))
 	for suffix, size := range sizes {
-		go func(wand *imagick.Wand, suffix, size string) {
+		go func(wand *imagick.MagickWand, suffix string, x, y uint) {
 			errc <- func() error {
+				defer wand.Destroy()
+
 				if err := wand.AdaptiveResizeImage(size.x, size.y); err != nil {
 					return fmt.Errorf("resize: %v", err)
 				}
@@ -125,7 +129,7 @@ func (s server) processImage(bucket, name string) error {
 				}
 				target = fmt.Sprintf("%s_%s.webp", target, suffix)
 
-				w := storage.NewWriter(s.ctx, outputBucket, target, nil)
+				w := storage.NewWriter(ctx, outputBucket, target, nil)
 				if _, err := w.Write(wand.GetImageBlob()); err != nil {
 					return fmt.Errorf("new writer: %v", err)
 				}
@@ -133,11 +137,11 @@ func (s server) processImage(bucket, name string) error {
 					return fmt.Errorf("close object writer: %v", err)
 				}
 				if _, err := w.Object(); err != nil {
-					return fmt.Errorf("write image: %v", err)
+					return fmt.Errorf("write op: %v", err)
 				}
 				return nil
 			}()
-		}(wand.Clone(), suffix, size)
+		}(wand.Clone(), suffix, size.x, size.y)
 	}
 
 	for _ = range sizes {
@@ -160,11 +164,7 @@ func authorized(token string) (ok bool, err error) {
 		return false, err
 	}
 	tok, err := svc.Tokeninfo().Access_token(token).Do()
-	if err != nil {
-		return false, err
-	}
-
-	return tok.Email == authEmail, nil
+	return err == nil && tok.Email == authEmail, err
 }
 
 func notifyDone(name, token string) (err error) {
