@@ -15,7 +15,6 @@
 package abelana
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -46,67 +45,62 @@ func iNowFollow(cx appengine.Context, userID, followerID string) {
 }
 
 // addPhoto is called to add a photo.
-func addPhoto(c appengine.Context, filename string) {
-	err := func() error {
-		s := strings.Split(filename, ".")
-		if len(s) != 3 {
-			return fmt.Errorf("bad filename format %v", filename)
-		}
-		// s[2] is the file extension
-		userID, photoID, superID := s[0], s[1], s[0]+"."+s[1]
-		u, err := findUser(c, userID)
-		if err != nil {
-			return fmt.Errorf("unable to find user %v %v", userID, err)
-		}
+func addPhoto(cx appengine.Context, superID string) {
 
-		p := &Photo{photoID, time.Now().UTC().Unix()}
+	s := strings.Split(superID, ".")
+	if len(s) != 3 {
+		cx.Errorf("AddPhoto -- bad superID %v", superID)
+		return
+	}
+	u, err := findUser(cx, s[0])
+	if err != nil {
+		cx.Errorf("AddPhoto unable to find user %v %v", superID, err)
+		return
+	}
 
-		socket, err := socket.Dial(c, "tcp", server)
-		if err != nil {
-			return fmt.Errorf("Dial %v", err)
-		}
-		conn := redis.NewConn(socket, 0, 0) // TODO 0 TO's for now
-		defer conn.Close()
+	p := &Photo{s[1], time.Now().UTC().Unix()}
+	hc, err := socket.Dial(cx, "tcp", server)
+	if err != nil {
+		cx.Errorf("AddPhoto Dial %v", err)
+		return
+	}
+	defer hc.Close()
+	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
 
-		// Set Date
-		set, err := redis.Int(conn.Do("HSETNX", "IM:"+superID, "date", p.Date))
-		if (err != nil && err != redis.ErrNil) || set == 0 {
-			// block duplicate requests
-			return fmt.Errorf("duplicate %v %v", err, set)
-		}
+	photoID := s[0] + "." + s[1]
+	set, err := redis.Int(conn.Do("HSETNX", "IM:"+photoID, "date", p.Date)) // Set Date
+	if (err != nil && err != redis.ErrNil) || set == 0 {
+		cx.Errorf("AddPhoto D duplicate %v %v", err, set)
+		return // block duplicate requests
+	}
 
-		// TODO: Consider that at some point these should be done in batches of 100 or so.
+	// Consider that at some point these should be done in batches of 100 or so. TODO
 
-		// Add to each follower's list
-		for _, personID := range u.Persons {
-			conn.Send("LPUSH", "TL:"+personID, photoID)
-		}
-		conn.Flush()
+	// Add to each follower's list
+	for _, personID := range u.Persons {
+		conn.Send("LPUSH", "TL:"+personID, photoID)
+	}
+	conn.Flush()
 
-		// Check the result and adjust list if nescessary.
-		for _, personID := range u.Persons {
-			v, err := redis.Int(conn.Receive())
-			if err != nil && err != redis.ErrNil {
-				c.Errorf("AddPhoto: TL:%v %v", personID, err)
-				continue
-			}
+	// Check the result and adjust list if nescessary.
+	for _, personID := range u.Persons {
+		v, err := redis.Int(conn.Receive())
+		if err != nil && err != redis.ErrNil {
+			cx.Errorf("AddPhoto for %v %v", "TL:"+personID, err)
+		} else {
 			if v > 2000 {
 				_, err := conn.Do("RPOP", "TL:"+personID)
 				if err != nil {
-					c.Errorf("AddPhoto RPOP %v", err)
+					cx.Errorf("AddPhoto RPOP %v", err)
 				}
 			}
 		}
-		k1 := datastore.NewKey(c, "User", s[0], 0, nil)
-		k2 := datastore.NewKey(c, "Photo", s[1], 0, k1)
-		_, err = datastore.Put(c, k2, p)
-		if err != nil {
-			return fmt.Errorf("datastore %v", err)
-		}
-		return nil
-	}()
+	}
+	k1 := datastore.NewKey(cx, "User", s[0], 0, nil)
+	k2 := datastore.NewKey(cx, "Photo", s[1], 0, k1)
+	_, err = datastore.Put(cx, k2, p)
 	if err != nil {
-		c.Errorf("AddPhoto: %v", err)
+		cx.Errorf("AddPhoto datastore %v", err)
 	}
 }
 
@@ -127,23 +121,10 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 	if err != nil && err != redis.ErrNil {
 		cx.Errorf("GetTimeLine %v", err)
 	}
-	idx := 0
-	find := func(vs []int, x int) (int, bool) {
-		for i, v := range vs {
-			if v == x {
-				return i, true
-			}
-		}
-		return 0, false
-	}
-
+	ix := 0
 	if lastid != "0" {
-		for i := 0; i < len(list) && list[i] != lastid; i++ {
-
-		}
-		for i, item := range list {
+		for ix, item = range list {
 			if item == lastid {
-				ix = i
 				break
 			}
 		}
