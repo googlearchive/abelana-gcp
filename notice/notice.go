@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httputil"
 	"time"
 
 	"github.com/golang/oauth2/google"
-
-	"code.google.com/p/google-api-go-client/compute/v1"
 
 	"appengine"
 	"appengine/memcache"
 	"appengine/taskqueue"
 	"appengine/urlfetch"
 )
+
+const backendAddress = "http://146.148.74.233:8080"
 
 func init() {
 	http.Handle("/", errorHandler(bucketNotificationHandler))
@@ -69,15 +70,6 @@ func bucketNotificationHandler(w http.ResponseWriter, r *http.Request) error {
 
 func incomingImageHandler(w http.ResponseWriter, r *http.Request) error {
 	c := appengine.NewContext(r)
-
-	ip, err := backendIP(c)
-	if err != nil {
-		return err
-	}
-
-	// TODO: add TLS so the backend can authenticate the request.
-	// The token sent to the backend is forwarded to the photopush module,
-	// we need the userinfo.email scope to be able to verify the token origin.
 	config := google.NewAppEngineConfig(c, "https://www.googleapis.com/auth/userinfo.email")
 	config.Transport = &urlfetch.Transport{
 		Context:                       c,
@@ -87,54 +79,22 @@ func incomingImageHandler(w http.ResponseWriter, r *http.Request) error {
 	client := http.Client{Transport: config.NewTransport()}
 
 	r.ParseForm()
-	res, err := client.PostForm(fmt.Sprintf("https://%s:10443", ip), r.Form)
+	res, err := client.PostForm(backendAddress, r.Form)
 	if err != nil {
 		return fmt.Errorf("backend: %v", err)
 	}
 
+	if res.StatusCode != http.StatusOK {
+		b, err := httputil.DumpResponse(res, true)
+		if err != nil {
+			return fmt.Errorf("dump response: %v", err)
+		}
+		c.Errorf("backend failed with code %v:\n%s", res.Status, b)
+	}
+
 	w.WriteHeader(res.StatusCode)
 	_, err = io.Copy(w, res.Body)
-
 	return err
-}
-
-func backendIP(c appengine.Context) (string, error) {
-	const key = "backendIP"
-
-	// check if the IP is already in memcache
-	item, err := memcache.Get(c, key)
-	if err == nil {
-		return string(item.Value), nil
-	}
-	if err != memcache.ErrCacheMiss {
-		c.Errorf("get %s from memcache: %v", key, err)
-	}
-
-	// create an authenticated compute API client
-	config := google.NewAppEngineConfig(c, compute.ComputeReadonlyScope)
-	client := &http.Client{Transport: config.NewTransport()}
-	svc, err := compute.New(client)
-	if err != nil {
-		return "", fmt.Errorf("new compute client: %v", err)
-	}
-
-	// use the client to obtain the IP with name imagemagick
-	addr, err := svc.Addresses.Get("abelana-222", "us-central1", "imagemagick").Do()
-	if err != nil {
-		return "", fmt.Errorf("get address: %v", err)
-	}
-
-	// try to save the IP in memcache
-	item = &memcache.Item{
-		Key:   key,
-		Value: []byte(addr.Address),
-		// TODO: how to invalidate this if the address changes?
-		Expiration: time.Hour,
-	}
-	if err := memcache.Set(c, item); err != nil {
-		c.Errorf("set %s in memcache: %v", key, err)
-	}
-	return addr.Address, nil
 }
 
 type errorHandler func(http.ResponseWriter, *http.Request) error
