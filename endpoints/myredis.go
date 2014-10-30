@@ -21,21 +21,42 @@ import (
 
 	"appengine"
 	"appengine/datastore"
-	"appengine/socket"
-
-	"github.com/garyburd/redigo/redis"
 )
 
 var server string
+
+var (
+	pool          *Pool
+	redisPassword = ""
+)
 
 // Note - I looked at adapting both Gary Burd's pool system and Vites pools to AppEngine, but ran
 // out of time as there were too many dependencies.
 
 func redisInit() {
-	if appengine.IsDevAppServer() {
-		server = redisExt
-	} else {
-		server = redisExt
+	server = redisExt
+	pool = newPool(server, redisPassword)
+}
+
+func newPool(server, password string) *Pool {
+	return &Pool{
+		MaxIdle:     3,
+		IdleTimeout: 115 * time.Second,
+		Dial: func(cx appengine.Context) (Conn, error) {
+			c, err := Dial(cx, "tcp", server)
+			if err != nil {
+				return nil, err
+			}
+			// if _, err := c.Do("AUTH", password); err != nil {
+			// 	c.Close()
+			// 	return nil, err
+			// }
+			return c, err
+		},
+		TestOnBorrow: func(c Conn, t time.Time) error {
+			_, err := c.Do("PING")
+			return err
+		},
 	}
 }
 
@@ -59,17 +80,13 @@ func addPhoto(cx appengine.Context, superID string) {
 	}
 
 	p := &Photo{s[1], time.Now().UTC().Unix()}
-	hc, err := socket.Dial(cx, "tcp", server)
-	if err != nil {
-		cx.Errorf("AddPhoto Dial %v", err)
-		return
-	}
-	defer hc.Close()
-	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
+
+	conn := pool.Get(cx)
+	defer conn.Close()
 
 	photoID := s[0] + "." + s[1]
-	set, err := redis.Int(conn.Do("HSETNX", "IM:"+photoID, "date", p.Date)) // Set Date
-	if (err != nil && err != redis.ErrNil) || set == 0 {
+	set, err := Int(conn.Do("HSETNX", "IM:"+photoID, "date", p.Date)) // Set Date
+	if (err != nil && err != ErrNil) || set == 0 {
 		cx.Errorf("AddPhoto D duplicate %v %v", err, set)
 		return // block duplicate requests
 	}
@@ -84,8 +101,8 @@ func addPhoto(cx appengine.Context, superID string) {
 
 	// Check the result and adjust list if nescessary.
 	for _, personID := range u.Persons {
-		v, err := redis.Int(conn.Receive())
-		if err != nil && err != redis.ErrNil {
+		v, err := Int(conn.Receive())
+		if err != nil && err != ErrNil {
 			cx.Errorf("AddPhoto for %v %v", "TL:"+personID, err)
 		} else {
 			if v > 2000 {
@@ -109,16 +126,11 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 	var item string
 	timeline := []TLEntry{}
 
-	hc, err := socket.Dial(cx, "tcp", server)
-	if err != nil {
-		cx.Errorf("GetTimeLine Dial %v", err)
-		return nil, err
-	}
-	defer hc.Close()
-	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
+	conn := pool.Get(cx)
+	defer conn.Close()
 
-	list, err := redis.Strings(conn.Do("LRANGE", "TL:"+userID, 0, -1))
-	if err != nil && err != redis.ErrNil {
+	list, err := Strings(conn.Do("LRANGE", "TL:"+userID, 0, -1))
+	if err != nil && err != ErrNil {
 		cx.Errorf("GetTimeLine %v", err)
 	}
 	ix := 0
@@ -133,8 +145,8 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 	for i := 0; i < timelineBatchSize && i+ix < len(list); i++ {
 		photoID := list[ix+i]
 
-		v, err := redis.Strings(conn.Do("HMGET", "IM:"+photoID, "date", userID, "flag"))
-		if err != nil && err != redis.ErrNil {
+		v, err := Strings(conn.Do("HMGET", "IM:"+photoID, "date", userID, "flag"))
+		if err != nil && err != ErrNil {
 			cx.Errorf("GetTimeLine HMGET %v", err)
 		}
 		if v[2] != "" {
@@ -143,13 +155,13 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 				continue // skip flag'd images
 			}
 		}
-		likes, err := redis.Int(conn.Do("HLEN", "IM:"+photoID))
-		if err != nil && err != redis.ErrNil {
+		likes, err := Int(conn.Do("HLEN", "IM:"+photoID))
+		if err != nil && err != ErrNil {
 			cx.Errorf("GetTimeLine HLEN %v", err)
 		}
 		s := strings.Split(photoID, ".")
-		dn, err := redis.String(conn.Do("HGET", "HT:"+s[0], "dn"))
-		if err != nil && err != redis.ErrNil {
+		dn, err := String(conn.Do("HGET", "HT:"+s[0], "dn"))
+		if err != nil && err != ErrNil {
 			cx.Errorf("GetTimeLine HLEN %v", err)
 		}
 		dt, err := strconv.ParseInt(v[0], 10, 64)
@@ -161,15 +173,12 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 
 // addUser adds the user to redis
 func addUser(cx appengine.Context, userID, displayName string) {
-	hc, err := socket.Dial(cx, "tcp", server)
-	if err != nil {
-		cx.Errorf("addUser Dial %v", err)
-	}
-	defer hc.Close()
-	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
+
+	conn := pool.Get(cx)
+	defer conn.Close()
 
 	// See if we have done this already, block others.
-	_, err = conn.Do("HSET", "HT:"+userID, "dn", displayName)
+	_, err := conn.Do("HSET", "HT:"+userID, "dn", displayName)
 	if err != nil {
 		cx.Errorf("addUser Exists %v", err)
 	}
@@ -177,45 +186,34 @@ func addUser(cx appengine.Context, userID, displayName string) {
 
 // like the user on redis
 func like(cx appengine.Context, userID, photoID string) {
-	hc, err := socket.Dial(cx, "tcp", server)
-	if err != nil {
-		cx.Errorf("like Dial %v", err)
-		return
-	}
-	defer hc.Close()
-	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
-	_, err = redis.Int(conn.Do("HSET", "IM:"+photoID, userID, "1"))
-	if err != nil && err != redis.ErrNil {
+
+	conn := pool.Get(cx)
+	defer conn.Close()
+
+	_, err := Int(conn.Do("HSET", "IM:"+photoID, userID, "1"))
+	if err != nil && err != ErrNil {
 		cx.Errorf("like %v", err)
 	}
 }
 
 // unlike
 func unlike(cx appengine.Context, userID, photoID string) {
-	hc, err := socket.Dial(cx, "tcp", server)
-	if err != nil {
-		cx.Errorf("unlike Dial %v", err)
-		return
-	}
-	defer hc.Close()
-	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
-	_, err = redis.Int(conn.Do("HDEL", "IM:"+photoID, userID))
-	if err != nil && err != redis.ErrNil {
+	conn := pool.Get(cx)
+	defer conn.Close()
+
+	_, err := Int(conn.Do("HDEL", "IM:"+photoID, userID))
+	if err != nil && err != ErrNil {
 		cx.Errorf("unlike %v", err)
 	}
 }
 
 // flag will tell us that things may not be quite right with this image.
 func flag(cx appengine.Context, userID, photoID string) {
-	hc, err := socket.Dial(cx, "tcp", server)
-	if err != nil {
-		cx.Errorf("unlike Dial %v", err)
-		return
-	}
-	defer hc.Close()
-	conn := redis.NewConn(hc, 0, 0) // TODO 0 TO's for now
-	_, err = redis.Int(conn.Do("HINCRBY", "IM:"+photoID, "flag", 1))
-	if err != nil && err != redis.ErrNil {
+	conn := pool.Get(cx)
+	defer conn.Close()
+
+	_, err := Int(conn.Do("HINCRBY", "IM:"+photoID, "flag", 1))
+	if err != nil && err != ErrNil {
 		cx.Errorf("unlike %v", err)
 	}
 }

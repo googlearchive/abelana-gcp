@@ -15,6 +15,13 @@ How do I, as a developer, start working on the project?
 1. What dependencies does it have (where are they expressed) and how do I install them?
 1. Can I see the project working before I change anything?
 
+1. How we setup Redis
+  * Use one click install to get us 3 redis instances (master - 2 slaves)
+  * For each instance, set it to restart automatically
+  * get the Internal & External IP address for the Master
+  * Add a backup cron job to backup the db every 15 minutes.
+  * (Optional) Add firewall entries to all me to access from my development system
+  * Add IP's to app config files
 
 ## Testing
 
@@ -58,7 +65,7 @@ for(int i = 0; i<32; i++) password[i] = (byte) (android[i] ^ server[i]);
 System.out.println("password: "+ Base64.encodeToString(key, Base64.NO_PADDING | Base64.URL_SAFE));
 ```
 
-Changing the password on the p12 file:
+#### Changing the password on the p12 file:
 * openssl pkcs12 -in < key.p12 > -nocerts -passin pass:notasecret -nodes -out /tmp/me.pem
 * openssl pkcs12 -export -in /tmp/me.pem -out < mykey.p12 > -name privatekey -passout < New Passphrase >
 
@@ -67,6 +74,8 @@ e.g.
 * How to monitor background jobs.
 * How to run the app through a proxy.
 
+### Suggested Reading
+* https://cloud.google.com/appengine/kb/general#static-ip
 
 ## Contributing changes
 
