@@ -18,7 +18,9 @@ import (
 	//    "fmt"
 
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -36,21 +38,20 @@ import (
 )
 
 ////////////////////////////////////////////////////////////////////
-const EnableBackdoor = true // FIXME(lesv) TEMPORARY BACKDOOR ACCESS
-const enableStubs = true
+//const EnableBackdoor = true // FIXME(lesv) TEMPORARY BACKDOOR ACCESS
+//const enableStubs = true
 
 ////////////////////////////////////////////////////////////////////
 
-// These things shouldn't be here, but there isn't a good place to get them at the moment.
-const (
-	authEmail         = "abelana-222@appspot.gserviceaccount.com"
-	projectID         = "abelana-222"
-	bucket            = "abelana-in"
-	redisInt          = "10.240.166.239:6379"
-	redisExt          = "146.148.88.48:6379"
-	uploadRetries     = 5
-	timelineBatchSize = 100
-)
+// // These things shouldn't be here, but there isn't a good place to get them at the moment.
+// const (
+// 	authEmail         = "416523807683-87kpuu2fsvov4hbg9j8f8808an8h2k2b@developer.gserviceaccount.com"
+// 	projectID         = "abelana-222"
+// 	bucket            = "abelana-in"
+// 	redisExt          = "146.148.88.48:6379"
+// 	uploadRetries     = 5
+// 	timelineBatchSize = 100
+// )
 
 var aconfig *AbelanaConfig
 
@@ -76,26 +77,29 @@ var delayFunc = delay.Func("test003", func(cx appengine.Context, x string) {
 var delayCopyImage = delay.Func("CopyImage001", copyUserPhoto)
 var delayAddPhoto = delay.Func("AddImage002", addPhoto)
 var delayINowFollow = delay.Func("FollowByID03", iNowFollow)
+var delayFindFollows = delay.Func("findFollows334", findFollows)
 
 // AbelanaConfig contains all the information we need to run Abelana
 type AbelanaConfig struct {
-	authEmail         string
-	projectID         string
-	bucket            string
-	redisPW           string
-	redis             string
-	timelineBatchSize int
-	uploadRetries     int
+	AuthEmail         string
+	ProjectID         string
+	Bucket            string
+	RedisPW           string
+	Redis             string
+	TimelineBatchSize int
+	UploadRetries     int
 	EnableBackdoor    bool
-	enableStubs       bool
+	EnableStubs       bool
 }
 
 // User is the root structure for everything.
 type User struct {
-	UserID      string
-	DisplayName string
-	Email       string
-	People      []string
+	UserID        string
+	DisplayName   string
+	Email         string
+	FollowsMe     []string
+	IFollow       []string
+	IWantToFollow []string
 }
 
 // Photo is how we keep images in Datastore
@@ -176,8 +180,11 @@ func AppEngine(c martini.Context, r *http.Request) {
 }
 
 func init() {
-	aconfig, _ = loadAbelanaConfig("private/abelana-config.json")
-
+	var err error
+	aconfig, err = loadAbelanaConfig("private/abelana-config.json")
+	if err != nil {
+		log.Printf("init - ERROR %v", err)
+	}
 	m := martini.Classic()
 	m.Use(AppEngine)
 
@@ -206,7 +213,7 @@ func init() {
 
 	m.Post("/photopush/:superid", PostPhoto) // "ok"
 
-	if EnableBackdoor {
+	if aconfig.EnableBackdoor {
 		m.Get("/les", Test)
 		m.Get("/user/:gittok/login", Login)
 	}
@@ -223,11 +230,11 @@ func loadAbelanaConfig(path string) (*AbelanaConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	var c AbelanaConfig
-	if err := json.Unmarshal(b, &c); err != nil {
+	c := &AbelanaConfig{}
+	if err := json.Unmarshal(b, c); err != nil {
 		return nil, err
 	}
-	return &c, nil
+	return c, nil
 }
 
 // Test does magic of the moment
@@ -266,7 +273,7 @@ func GetTimeLine(cx appengine.Context, at Access, p martini.Params, w http.Respo
 	var timeline []TLEntry
 	var err error
 
-	if !enableStubs {
+	if !aconfig.EnableStubs {
 		timeline, err = getTimeline(cx, at.ID(), p["lastid"])
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -309,7 +316,7 @@ func GetMyProfile(cx appengine.Context, at Access, p martini.Params, w http.Resp
 	var err error
 	var timeline []TLEntry
 
-	if !enableStubs {
+	if !aconfig.EnableStubs {
 		timeline, err = profileForUser(cx, at.ID(), p["lastdate"])
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -335,7 +342,7 @@ func FProfile(cx appengine.Context, at Access, p martini.Params, w http.Response
 	var err error
 	var timeline []TLEntry
 
-	if !enableStubs {
+	if !aconfig.EnableStubs {
 		personID := p["personid"]
 		timeline, err = profileForUser(cx, personID, p["lastdate"])
 		if err != nil {
@@ -365,7 +372,7 @@ func profileForUser(cx appengine.Context, userID, lastdate string) ([]TLEntry, e
 
 	k1 := datastore.NewKey(cx, "User", userID, 0, nil)
 	user := &User{}
-	err := datastore.Get(cx, k1, &user)
+	err := datastore.Get(cx, k1, user)
 	if err != nil {
 		cx.Errorf("profileForUser Get1 %v %v", userID, err)
 	}
@@ -377,13 +384,13 @@ func profileForUser(cx appengine.Context, userID, lastdate string) ([]TLEntry, e
 		}
 		q = q.Filter("", lastDate)
 	}
-	q = q.Order("-Date").Limit(timelineBatchSize * 3)
+	q = q.Order("-Date").Limit(aconfig.TimelineBatchSize * 3)
 	var photos []Photo
 	_, err = q.GetAll(cx, &photos)
 	if err != nil {
 		cx.Errorf("profileForUser get2 %v %v", userID, err)
 	}
-	timeline = make([]TLEntry, 0, timelineBatchSize*3)
+	timeline = make([]TLEntry, 0, aconfig.TimelineBatchSize*3)
 
 	for _, p := range photos {
 		te := TLEntry{p.Date, userID, user.DisplayName, p.PhotoID, -1, false} // don't return anything for likes
@@ -405,19 +412,19 @@ func Import(cx appengine.Context, at Access, p martini.Params, w http.ResponseWr
 // Person
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-// GetFollowing - A list of our followers (AToken) : FlResp
+// GetFollowing - A list of those I follow (AToken) :
 func GetFollowing(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
 	fl := &Persons{}
 
-	if !enableStubs {
+	if !aconfig.EnableStubs {
 		k1 := datastore.NewKey(cx, "User", at.ID(), 0, nil)
 		user := &User{}
-		err := datastore.Get(cx, k1, &user)
+		err := datastore.Get(cx, k1, user)
 		if err != nil {
 			cx.Errorf("GetFollowing %v %v", at.ID(), err)
 			replyOk(w)
 		}
-		pl := getPersons(cx, user.People)
+		pl := getPersons(cx, user.IFollow)
 		fl = &Persons{"abelana#followerList", pl}
 	} else {
 		fl = &Persons{"abelana#followerList",
@@ -432,10 +439,10 @@ func GetFollowing(cx appengine.Context, at Access, p martini.Params, w http.Resp
 func GetPerson(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
 	f := &Person{}
 
-	if !enableStubs {
+	if !aconfig.EnableStubs {
 		k1 := datastore.NewKey(cx, "User", p["personid"], 0, nil)
 		user := &User{}
-		err := datastore.Get(cx, k1, &user)
+		err := datastore.Get(cx, k1, user)
 		if err != nil {
 			cx.Errorf("GetPerson %v %v", p["personid"], err)
 			replyOk(w)
@@ -449,29 +456,123 @@ func GetPerson(cx appengine.Context, at Access, p martini.Params, w http.Respons
 
 // FollowByID - will tell us about a new possible follower (FrReq) : Status
 func FollowByID(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	k1 := datastore.NewKey(cx, "User", at.ID(), 0, nil)
-	user := &User{}
-	err := datastore.Get(cx, k1, &user)
+	iFollow := p["personid"]
+	err := followById(cx, at.ID(), iFollow)
 	if err != nil {
-		cx.Errorf("FollowByID %v %v %v", at.ID(), p["personid"], err)
-		replyOk(w)
+		cx.Errorf("FollowByID: %v", err)
 	}
-	sl := user.People
-	if len(sl) == cap(sl) {
-		newSl := make([]string, len(sl), len(sl)+1)
-		copy(newSl, sl)
-		sl = newSl
-	}
-	user.People = sl[0 : len(sl)+1]
-	user.People[len(sl)] = p["personid"]
-	_, err = datastore.Put(cx, k1, &user)
-	delayINowFollow.Call(cx, at.ID(), p["personid"])
 	replyOk(w)
 }
 
 // Follow will see if we can follow the user, given their email
 func Follow(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
+	var users []User
+	var keys []*datastore.Key
+	eMail, err := decodeSegment(p["email"])
+	if err != nil {
+		cx.Errorf("Follow: ds %v %v", p["email"], err)
+		replyOk(w)
+		return
+	}
+	email := string(eMail)
+	// TODO try looking them up in GitKit as it has many versions of email addresses.
+
+	q := datastore.NewQuery("User").Filter("Email =", email).KeysOnly()
+	keys, err = q.GetAll(cx, &users)
+	if err != nil {
+		cx.Errorf("Follow: %v %v", email, err)
+		replyOk(w)
+		return
+	}
+	if len(keys) > 0 {
+		cx.Infof("Follow - Found: (%v) %v %v", len(keys), email, keys[0].StringID())
+		err = followById(cx, at.ID(), keys[0].StringID())
+		if err != nil {
+			cx.Errorf("Follow: followByID: %v", err)
+		}
+	} else {
+		cx.Infof("Follow - NOT FOUND %v", email)
+		err = datastore.RunInTransaction(cx, func(cx appengine.Context) error {
+			user, err := findUser(cx, at.ID())
+			if err != nil {
+				return err
+			}
+			iwant := len(user.IWantToFollow)
+			if iwant == cap(user.IWantToFollow) {
+				newSlice := make([]string, iwant, iwant+1)
+				copy(newSlice, user.IWantToFollow)
+				user.IWantToFollow = newSlice[0 : iwant+1]
+			}
+			kUser := datastore.NewKey(cx, "User", at.ID(), 0, nil)
+			user.IWantToFollow[iwant] = email
+			_, err = datastore.Put(cx, kUser, user)
+			return err
+		}, nil)
+		if err != nil {
+			cx.Errorf("Follow: %v %v", eMail, err)
+		}
+	}
 	replyOk(w)
+}
+
+// findFollows will do the major explosion for the social network, it is called by Delay and it will
+// fire off many delay's possibly for a popular person joining the network.
+func findFollows(cx appengine.Context, userID, email string) {
+
+}
+
+// followById makes following a user easy once we know who they are
+func followById(cx appengine.Context, userID, followingID string) error {
+	to := &datastore.TransactionOptions{XG: true}
+	err := datastore.RunInTransaction(cx, func(cx appengine.Context) error {
+		user := &User{}
+		kUser := datastore.NewKey(cx, "User", userID, 0, nil)
+		err := datastore.Get(cx, kUser, user)
+		if err != nil {
+			return fmt.Errorf("getMe %v %v %v", userID, followingID, err)
+		}
+
+		followed := &User{}
+		kFollowed := datastore.NewKey(cx, "User", followingID, 0, nil)
+		err = datastore.Get(cx, kFollowed, followed)
+		if err != nil {
+			return fmt.Errorf("getFollowed %v %v %v", followingID, userID, err)
+		}
+		cx.Infof("followByID: (%v %v)%v %v", len(user.IFollow), cap(user.IFollow), userID, followingID)
+		sl := user.IFollow
+		if len(sl) == cap(sl) {
+			newSl := make([]string, len(sl), len(sl)+1)
+			copy(newSl, sl)
+			sl = newSl
+		}
+		user.IFollow = sl[0 : len(sl)+1]
+		user.IFollow[len(sl)] = followingID
+
+		sl = followed.FollowsMe
+		if len(sl) == cap(sl) {
+			newSl := make([]string, len(sl), len(sl)+1)
+			copy(newSl, sl)
+			sl = newSl
+		}
+		followed.FollowsMe = sl[0 : len(sl)+1]
+		followed.FollowsMe[len(sl)] = userID
+
+		_, err = datastore.Put(cx, kUser, user)
+		if err != nil {
+			return fmt.Errorf("updateMe %v %v", userID, err)
+		}
+		_, err = datastore.Put(cx, kFollowed, followed)
+		if err != nil {
+			return fmt.Errorf("updateFollowed %v %v", followingID, err)
+		}
+		return nil
+	}, to)
+
+	if err != nil {
+		return err
+	}
+	delayINowFollow.Call(cx, userID, followingID)
+	return nil
 }
 
 // Statistics will tell you about a user
@@ -627,7 +728,7 @@ func authorized(cx appengine.Context, token string) (bool, error) {
 		return false, err
 	}
 	cx.Infof("  tok %v", tok)
-	return tok.Email == authEmail, nil
+	return tok.Email == aconfig.AuthEmail, nil
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

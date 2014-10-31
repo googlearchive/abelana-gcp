@@ -90,13 +90,22 @@ func haveCerts(cx appengine.Context) {
 func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	var token *gitkit.Token
 	var err error
+	var dName, photoURL string
 
 	haveCerts(cx)
 	dn, err := decodeSegment(p["displayName"])
+	if err != nil {
+		dName = "Name Unavailable"
+	} else {
+		dName = string(dn)
+	}
 	pu, err := decodeSegment(p["photoUrl"])
-	dName := string(dn)
-	photoURL := string(pu)
-	if EnableBackdoor && p["gittok"] == "Les" {
+	if err != nil {
+		photoURL = ""
+	} else {
+		photoURL = string(pu)
+	}
+	if aconfig.EnableBackdoor && p["gittok"] == "Les" {
 		err = nil
 		token = &gitkit.Token{"Magic", "**AUDIENCE**", time.Now().UTC(),
 			time.Now().UTC().Add(1 * time.Hour), "00001", "lesv@abelana-app.com",
@@ -104,8 +113,8 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 		dName = "Les Vogel"
 		photoURL = "https://lh4.googleusercontent.com/-Nt9PfYHmQeI/AAAAAAAAAAI/AAAAAAAAANI/2mbohwDXFKI/photo.jpg?sz=50"
 	} else {
-		//		token, err = VerifyToken(p["gittok"]) // TODO FIXME should be gitKit.ValidateToken
-		token, err = gclient.ValidateToken(p["gitkit"])
+		token, err = VerifyToken(cx, p["gittok"]) // TODO FIXME should be gitKit.ValidateToken
+		// token, err = gclient.ValidateToken(p["gitkit"])
 		if err != nil {
 			http.Error(w, "Invalid Token", http.StatusUnauthorized)
 			return
@@ -138,9 +147,12 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	user, err := findUser(cx, at.UserID)
 	if err != nil {
 		// Not found, must create
-		user = User{at.UserID, dName, token.Email, make([]string, 0, 100)}
+		user = User{UserID: at.UserID, DisplayName: dName, Email: token.Email}
 		createUser(cx, user)
-		delayCopyImage.Call(cx, photoURL, at.UserID) // was CopyUserPhoto
+		if photoURL == "" {
+			delayCopyImage.Call(cx, photoURL, at.UserID) // was CopyUserPhoto
+		}
+		delayFindFollows.Call(cx, at.UserID, at.Email)
 	}
 }
 
@@ -220,7 +232,7 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 	var at *AccToken
 
 	haveCerts(cx)
-	if EnableBackdoor && strings.HasPrefix(p["atok"], "LES") { // FIXME -- TEMPORARY BACKDOOR
+	if aconfig.EnableBackdoor && strings.HasPrefix(p["atok"], "LES") { // FIXME -- TEMPORARY BACKDOOR
 		at = &AccToken{"00001", string(serverKey), time.Now().UTC().Unix(),
 			time.Now().UTC().Add(120 * 24 * time.Hour).Unix(), "lesv@abelana-app.com"}
 	} else {
@@ -286,7 +298,7 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 
 // VerifyToken verifies the JWT is valid and signed by identitytoolkit service
 // and returns the verfied token.
-func VerifyToken(token string) (*gitkit.Token, error) {
+func VerifyToken(cx appengine.Context, token string) (*gitkit.Token, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("not a JWT: %s", token)
@@ -334,11 +346,13 @@ func VerifyToken(token string) (*gitkit.Token, error) {
 		err := cert.CheckSignature(x509.SHA256WithRSA, []byte(parts[0]+"."+parts[1]), s)
 		if err == nil {
 			break
+		} else {
+			cx.Errorf("VerifyToken %v %v", t, err)
 		}
 	}
-	if err != nil {
-		return nil, err
-	}
+	// if err != nil {
+	// 	return nil, err
+	// }
 	return &gitkit.Token{
 		Issuer:        t.Iss,
 		Audience:      t.Aud,

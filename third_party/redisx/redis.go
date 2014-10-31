@@ -13,9 +13,9 @@
 // under the License.
 
 // This file was forked and adapted from https://github.com/garyburd/redigo/
-// (pool.go & commandinfo.go) on 10/29/2014 at 6pm PDT
+// on 10/29/2014 at 6pm PDT
 
-package abelana
+package redisx
 
 import "appengine/socket"
 
@@ -48,5 +48,5 @@ type Conn interface {
 	Receive() (reply interface{}, err error)
 
 	// Conn is the http.Conn that we can work with.
-	Cn() *socket.Conn
+	SocketConn() *socket.Conn // LV3 AppEngine
 }

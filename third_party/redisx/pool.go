@@ -15,7 +15,7 @@
 // This file was forked and adapted from https://github.com/garyburd/redigo/
 // (pool.go & commandinfo.go) on 10/29/2014 at 6pm PDT
 
-package abelana
+package redisx
 
 import (
 	"bytes"
@@ -141,7 +141,7 @@ type idleConn struct {
 // error handling to the first use of the connection. If there is an error
 // getting an underlying connection, then the connection Err, Do, Send, Flush
 // and Receive methods return that error.
-func (p *Pool) Get(cx appengine.Context) Conn {
+func (p *Pool) Get(cx appengine.Context) Conn { // LV3 AppEngine
 	c, err := p.get(cx)
 	if err != nil {
 		return errorConnection{err}
@@ -173,7 +173,7 @@ func (p *Pool) Close() error {
 
 // get prunes stale connections and returns a connection from the idle list or
 // creates a new connection.
-func (p *Pool) get(cx appengine.Context) (Conn, error) {
+func (p *Pool) get(cx appengine.Context) (Conn, error) { // LV3 AppEngine
 	p.mu.Lock()
 
 	if p.closed {
@@ -212,7 +212,7 @@ func (p *Pool) get(cx appengine.Context) (Conn, error) {
 		p.idle.Remove(e)
 		test := p.TestOnBorrow
 		p.mu.Unlock()
-		ic.c.Cn().SetContext(cx)
+		ic.c.SocketConn().SetContext(cx) // LV3 AppEngine
 		if test == nil || test(ic.c, ic.t) == nil {
 			return ic.c, nil
 		}
@@ -348,11 +348,11 @@ func (pc *pooledConnection) Receive() (reply interface{}, err error) {
 	return pc.c.Receive()
 }
 
-func (pc *pooledConnection) Cn() *socket.Conn {
-	return pc.c.Cn()
+func (pc *pooledConnection) SocketConn() *socket.Conn { // LV3 AppEngine
+	return pc.c.SocketConn()
 }
 
-type errorConnection struct{ err error }
+type errorConnection struct{ err error } // LV3 AppEngine
 
 func (ec errorConnection) Do(string, ...interface{}) (interface{}, error) { return nil, ec.err }
 func (ec errorConnection) Send(string, ...interface{}) error              { return ec.err }
@@ -360,7 +360,9 @@ func (ec errorConnection) Err() error                                     { retu
 func (ec errorConnection) Close() error                                   { return ec.err }
 func (ec errorConnection) Flush() error                                   { return ec.err }
 func (ec errorConnection) Receive() (interface{}, error)                  { return nil, ec.err }
-func (ec errorConnection) Cn() *socket.Conn                               { return errConn }
+func (ec errorConnection) SocketConn() *socket.Conn                       { return errConn } // LV3 AppEngine
+
+// LV3 AppEngine -- The lines below were from commandinfo.go
 
 const (
 	watchState = 1 << iota
