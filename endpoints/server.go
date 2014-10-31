@@ -18,6 +18,7 @@ import (
 	//    "fmt"
 
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strconv"
@@ -43,10 +44,9 @@ const enableStubs = true
 
 // These things shouldn't be here, but there isn't a good place to get them at the moment.
 const (
-	authEmail         = "abelana-222@appspot.gserviceaccount.com"
+	authEmail         = "416523807683-87kpuu2fsvov4hbg9j8f8808an8h2k2b@developer.gserviceaccount.com"
 	projectID         = "abelana-222"
 	bucket            = "abelana-in"
-	redisInt          = "10.240.166.239:6379"
 	redisExt          = "146.148.88.48:6379"
 	uploadRetries     = 5
 	timelineBatchSize = 100
@@ -76,6 +76,7 @@ var delayFunc = delay.Func("test003", func(cx appengine.Context, x string) {
 var delayCopyImage = delay.Func("CopyImage001", copyUserPhoto)
 var delayAddPhoto = delay.Func("AddImage002", addPhoto)
 var delayINowFollow = delay.Func("FollowByID03", iNowFollow)
+var delayFindFollows = delay.Func("findFollows334", findFollows)
 
 // AbelanaConfig contains all the information we need to run Abelana
 type AbelanaConfig struct {
@@ -92,10 +93,12 @@ type AbelanaConfig struct {
 
 // User is the root structure for everything.
 type User struct {
-	UserID      string
-	DisplayName string
-	Email       string
-	People      []string
+	UserID        string
+	DisplayName   string
+	Email         string
+	FollowsMe     []string
+	IFollow       []string
+	IWantToFollow []string
 }
 
 // Photo is how we keep images in Datastore
@@ -405,7 +408,7 @@ func Import(cx appengine.Context, at Access, p martini.Params, w http.ResponseWr
 // Person
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-// GetFollowing - A list of our followers (AToken) : FlResp
+// GetFollowing - A list of those I follow (AToken) :
 func GetFollowing(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
 	fl := &Persons{}
 
@@ -417,7 +420,7 @@ func GetFollowing(cx appengine.Context, at Access, p martini.Params, w http.Resp
 			cx.Errorf("GetFollowing %v %v", at.ID(), err)
 			replyOk(w)
 		}
-		pl := getPersons(cx, user.People)
+		pl := getPersons(cx, user.IFollow)
 		fl = &Persons{"abelana#followerList", pl}
 	} else {
 		fl = &Persons{"abelana#followerList",
@@ -449,29 +452,120 @@ func GetPerson(cx appengine.Context, at Access, p martini.Params, w http.Respons
 
 // FollowByID - will tell us about a new possible follower (FrReq) : Status
 func FollowByID(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	k1 := datastore.NewKey(cx, "User", at.ID(), 0, nil)
-	user := &User{}
-	err := datastore.Get(cx, k1, &user)
+	iFollow := p["personid"]
+	err := followById(cx, at.ID(), iFollow)
 	if err != nil {
-		cx.Errorf("FollowByID %v %v %v", at.ID(), p["personid"], err)
-		replyOk(w)
+		cx.Errorf("FollowByID: %v", err)
 	}
-	sl := user.People
-	if len(sl) == cap(sl) {
-		newSl := make([]string, len(sl), len(sl)+1)
-		copy(newSl, sl)
-		sl = newSl
-	}
-	user.People = sl[0 : len(sl)+1]
-	user.People[len(sl)] = p["personid"]
-	_, err = datastore.Put(cx, k1, &user)
-	delayINowFollow.Call(cx, at.ID(), p["personid"])
 	replyOk(w)
 }
 
 // Follow will see if we can follow the user, given their email
 func Follow(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
+	var users []User
+	var keys []datastore.Key
+	eMail, err := decodeSegment(p["email"])
+	if err != nil {
+		cx.Errorf("Follow: ds %v %v", p["email"], err)
+		replyOk(w)
+		return
+	}
+	email := string(eMail)
+	// TODO try looking them up in GitKit as it has many versions of email addresses.
+
+	q := datastore.NewQuery("User").Filter("Email =", email).KeysOnly()
+	err = datastore.RunInTransaction(cx, func(cx appengine.Context) error {
+		keys, err := q.GetAll(cx, &users)
+		if err != nil {
+			return err
+		}
+		if len(keys) > 0 {
+			return nil // We found a user
+		}
+		user, err := findUser(cx, at.ID())
+		if err != nil {
+			return err
+		}
+		iwant := len(user.IWantToFollow)
+		if iwant == cap(user.IWantToFollow) {
+			newSlice := make([]string, iwant, iwant+1)
+			copy(newSlice, user.IWantToFollow)
+			user.IWantToFollow = newSlice[0 : iwant+1]
+		}
+		kUser := datastore.NewKey(cx, "User", at.ID(), 0, nil)
+		user.IWantToFollow[iwant] = email
+		_, err = datastore.Put(cx, kUser, &user)
+		return err
+	}, nil)
+	if err != nil {
+		cx.Errorf("Follow: %v %v", eMail, err)
+		replyOk(w)
+		return
+	}
+	if len(keys) > 0 {
+		followById(cx, at.ID(), keys[0].StringID())
+	}
 	replyOk(w)
+}
+
+// findFollows will do the major explosion for the social network, it is called by Delay and it will
+// fire off many delay's possibly for a popular person joining the network.
+func findFollows(cx appengine.Context, userID, email string) {
+
+}
+
+// followById makes following a user easy once we know who they are
+func followById(cx appengine.Context, userID, followingID string) error {
+
+	err := datastore.RunInTransaction(cx, func(cx appengine.Context) error {
+		user := &User{}
+		kUser := datastore.NewKey(cx, "User", userID, 0, nil)
+		err := datastore.Get(cx, kUser, &user)
+		if err != nil {
+			return fmt.Errorf("getMe %v %v %v", userID, followingID, err)
+		}
+
+		followed := &User{}
+		kFollowed := datastore.NewKey(cx, "User", followingID, 0, nil)
+		err = datastore.Get(cx, kFollowed, &followed)
+		if err != nil {
+			return fmt.Errorf("getFollowed %v %v %v", followingID, userID, err)
+		}
+
+		sl := user.IFollow
+		if len(sl) == cap(sl) {
+			newSl := make([]string, len(sl), len(sl)+1)
+			copy(newSl, sl)
+			sl = newSl
+		}
+		user.IFollow = sl[0 : len(sl)+1]
+		user.IFollow[len(sl)] = followingID
+
+		sl = user.FollowsMe
+		if len(sl) == cap(sl) {
+			newSl := make([]string, len(sl), len(sl)+1)
+			copy(newSl, sl)
+			sl = newSl
+		}
+		user.FollowsMe = sl[0 : len(sl)+1]
+		user.FollowsMe[len(sl)] = userID
+
+		_, err = datastore.Put(cx, kUser, &user)
+		if err != nil {
+			return fmt.Errorf("updateMe %v %v", userID, err)
+		}
+		_, err = datastore.Put(cx, kFollowed, &followed)
+		if err != nil {
+			return fmt.Errorf("updateFollowed %v %v", followingID, err)
+		}
+		return nil
+	}, nil)
+
+	if err != nil {
+		return err
+	}
+	delayINowFollow.Call(cx, userID, followingID)
+	return nil
 }
 
 // Statistics will tell you about a user

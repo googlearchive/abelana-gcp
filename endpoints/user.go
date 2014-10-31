@@ -29,7 +29,7 @@ import (
 	"google.golang.org/cloud/storage"
 )
 
-// findUser Lookup the user
+// findUser Lookup the user (This can be called from a Transaction)
 func findUser(cx appengine.Context, userID string) (User, error) {
 	var user User
 

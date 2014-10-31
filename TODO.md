@@ -1,8 +1,6 @@
 ## TODO List - Missing Code
 * Endpoints
-  * [x] GetMyProfile
   * [ ] Follow (given email)
-  * [ ] FollowByID
   * [ ] AddFollower (partially implemented)
   * [ ] Wipeout
   * [ ] Register GCM
@@ -12,6 +10,7 @@
     * [ ] G+
     * [ ] Yahoo
 
+* [ ] findFollows needs to be implemented
 * [ ] Redis Connection Timeouts (if any)
 * [ ] FIXME Backdoor is currently enabled
 * [ ] FIXME tokens.Login should use GitKit's VerifyToken
@@ -20,6 +19,9 @@
 * [ ] Backup the Redis DB to it's own bucket on CloudStorage every 15 minutes.
 * [ ] Move configuration from static info to a config file
 * [ ] Redis Password
+* [ ] use RunInTransaction more...
 
 ## Later
 * [ ] Redis - Batch LPUSH's
+* [ ] Follow - Lookup email in GitKit instead of searching Datastore
+* [ ] Switch to projection Queries

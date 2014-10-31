@@ -61,7 +61,7 @@ func newPool(server, password string) *Pool {
 	}
 }
 
-// iNowFollow is Called when we need to add a folower
+// iNowFollow is Called when the user wants to follow someone
 func iNowFollow(cx appengine.Context, userID, followerID string) {
 
 }
@@ -91,13 +91,13 @@ func addPhoto(cx appengine.Context, photoID string) {
 		// TODO: Consider if these should be done in batches of 100 or so.
 
 		// Add to each follower's list
-		for _, personID := range u.People {
+		for _, personID := range u.FollowsMe {
 			conn.Send("LPUSH", "TL:"+personID, photoID)
 		}
 		conn.Flush()
 
 		// Check the result and adjust list if nescessary.
-		for _, personID := range u.People {
+		for _, personID := range u.FollowsMe {
 			v, err := Int(conn.Receive())
 			if err != nil && err != ErrNil {
 				cx.Errorf("Addphoto: TL:%v %v", personID, err)
