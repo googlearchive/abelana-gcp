@@ -47,7 +47,7 @@ How do I run the project's automated tests?
 
 ### Examples of common tasks
 
-
+#### How we create create the secretKey that resides on Android, used to access Cloud Storage
 ```java
 static SecureRandom sr = new SecureRandom();
 

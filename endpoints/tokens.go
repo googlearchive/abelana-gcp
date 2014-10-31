@@ -40,9 +40,15 @@ var publicCerts []*x509.Certificate
 
 // tokenInit will setup to use GitKit
 func tokenInit() {
+	var config *gitkit.Config
+	var err error
 	// Provide configuration. gitkit.LoadConfig() can also be used to load
 	// the configuration from a JSON file.
-	config, err := gitkit.LoadConfig("private/gitkit-server-config.json")
+	if appengine.IsDevAppServer() {
+		config, err = gitkit.LoadConfig("private/gitkit-server-config-dev.json")
+	} else {
+		config, err = gitkit.LoadConfig("private/gitkit-server-config.json")
+	}
 	if err != nil {
 		panic("Unable to initialize gitkit config ")
 	}
@@ -98,7 +104,8 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 		dName = "Les Vogel"
 		photoURL = "https://lh4.googleusercontent.com/-Nt9PfYHmQeI/AAAAAAAAAAI/AAAAAAAAANI/2mbohwDXFKI/photo.jpg?sz=50"
 	} else {
-		token, err = VerifyToken(p["gittok"]) // TODO FIXME should be gitKit.ValidateToken
+		//		token, err = VerifyToken(p["gittok"]) // TODO FIXME should be gitKit.ValidateToken
+		token, err = gclient.ValidateToken(p["gitkit"])
 		if err != nil {
 			http.Error(w, "Invalid Token", http.StatusUnauthorized)
 			return
@@ -259,11 +266,16 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 			http.Error(w, "Invalid Token", http.StatusUnauthorized)
 			return
 		}
-		err = publicCerts[0].CheckSignature(x509.SHA256WithRSA, []byte(part[0]+"."+part[1]), s)
-		if err != nil {
-			cx.Errorf("CheckSignature %v %v", 0, err)
+		for _, cert := range publicCerts {
+			err = cert.CheckSignature(x509.SHA256WithRSA, []byte(part[0]+"."+part[1]), s)
+			if err == nil {
+				break
+			}
 		}
-
+		if err != nil {
+			cx.Errorf("CheckSignature %v %v", at.UserID, err)
+			http.Error(w, "Invalid Token", http.StatusUnauthorized)
+		}
 	}
 
 	c.MapTo(at, (*Access)(nil))
@@ -290,10 +302,7 @@ func VerifyToken(token string) (*gitkit.Token, error) {
 	if err = json.Unmarshal(h, &hh); err != nil {
 		return nil, err
 	}
-	// cert, err := certs.Cert(hh.KeyID)
-	// if err != nil {
-	// 	return nil, err
-	// }
+
 	// Check the claim set.
 	c, err := decodeSegment(parts[1])
 	if err != nil {
@@ -316,14 +325,20 @@ func VerifyToken(token string) (*gitkit.Token, error) {
 		return nil, fmt.Errorf("missing required fields: %v", t)
 	}
 	// Check the signature.
-	// s, err := decodeSegment(parts[2])
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// FIXME -- turn off cert validation
-	// if err := cert.CheckSignature(x509.SHA256WithRSA, []byte(parts[0]+"."+parts[1]), s); err != nil {
-	// 	return nil, err
-	// }
+	s, err := decodeSegment(parts[2])
+	if err != nil {
+		return nil, err
+	}
+
+	for _, cert := range publicCerts {
+		err := cert.CheckSignature(x509.SHA256WithRSA, []byte(parts[0]+"."+parts[1]), s)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
 	return &gitkit.Token{
 		Issuer:        t.Iss,
 		Audience:      t.Aud,
