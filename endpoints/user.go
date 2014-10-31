@@ -81,8 +81,8 @@ func copyUserPhoto(cx appengine.Context, url string, userID string) error {
 	}
 	clnt := &http.Client{Transport: transport}
 
-	ctx := cloud.NewContext(projectID, clnt)
-	w := storage.NewWriter(ctx, bucket, userID+".jpg", &storage.Object{ContentType: "image/jpg"})
+	ctx := cloud.NewContext(aconfig.ProjectID, clnt)
+	w := storage.NewWriter(ctx, aconfig.Bucket, userID+".jpg", &storage.Object{ContentType: "image/jpg"})
 	defer w.Close()
 
 	_, err = io.Copy(w, resp.Body)

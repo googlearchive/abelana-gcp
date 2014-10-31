@@ -17,8 +17,6 @@
 * [ ] FIXME Remove HalfPW from AccToken
 * [ ] tokens.Login should verify Audience is correct
 * [ ] Backup the Redis DB to it's own bucket on CloudStorage every 15 minutes.
-* [ ] Move configuration from static info to a config file
-* [ ] Redis Password
 * [ ] use RunInTransaction more...
 
 ## Later

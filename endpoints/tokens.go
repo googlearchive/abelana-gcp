@@ -90,13 +90,22 @@ func haveCerts(cx appengine.Context) {
 func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	var token *gitkit.Token
 	var err error
+	var dName, photoURL string
 
 	haveCerts(cx)
 	dn, err := decodeSegment(p["displayName"])
+	if err != nil {
+		dName = "Name Unavailable"
+	} else {
+		dName = string(dn)
+	}
 	pu, err := decodeSegment(p["photoUrl"])
-	dName := string(dn)
-	photoURL := string(pu)
-	if EnableBackdoor && p["gittok"] == "Les" {
+	if err != nil {
+		photoURL = ""
+	} else {
+		photoURL = string(pu)
+	}
+	if aconfig.EnableBackdoor && p["gittok"] == "Les" {
 		err = nil
 		token = &gitkit.Token{"Magic", "**AUDIENCE**", time.Now().UTC(),
 			time.Now().UTC().Add(1 * time.Hour), "00001", "lesv@abelana-app.com",
@@ -138,10 +147,11 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	user, err := findUser(cx, at.UserID)
 	if err != nil {
 		// Not found, must create
-		user = User{at.UserID, dName, token.Email, make([]string, 0, 2),
-			make([]string, 0, 2), make([]string, 0, 2)}
+		user = User{UserID: at.UserID, DisplayName: dName, Email: token.Email}
 		createUser(cx, user)
-		delayCopyImage.Call(cx, photoURL, at.UserID) // was CopyUserPhoto
+		if photoURL == "" {
+			delayCopyImage.Call(cx, photoURL, at.UserID) // was CopyUserPhoto
+		}
 		delayFindFollows.Call(cx, at.UserID, at.Email)
 	}
 }
@@ -222,7 +232,7 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 	var at *AccToken
 
 	haveCerts(cx)
-	if EnableBackdoor && strings.HasPrefix(p["atok"], "LES") { // FIXME -- TEMPORARY BACKDOOR
+	if aconfig.EnableBackdoor && strings.HasPrefix(p["atok"], "LES") { // FIXME -- TEMPORARY BACKDOOR
 		at = &AccToken{"00001", string(serverKey), time.Now().UTC().Unix(),
 			time.Now().UTC().Add(120 * 24 * time.Hour).Unix(), "lesv@abelana-app.com"}
 	} else {

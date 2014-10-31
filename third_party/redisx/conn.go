@@ -13,9 +13,9 @@
 // under the License.
 
 // This file was forked and adapted from https://github.com/garyburd/redigo/
-// (pool.go & commandinfo.go) on 10/29/2014 at 6pm PDT
+// 10/29/2014 at 6pm PDT
 
-package abelana
+package redisx
 
 import (
 	"bufio"
@@ -56,12 +56,12 @@ type conn struct {
 	numScratch [40]byte
 }
 
-func (c *conn) Cn() *socket.Conn {
+func (c *conn) SocketConn() *socket.Conn { // lv3 AppEngine
 	return c.conn
 }
 
 // Dial connects to the Redis server at the given network and address.
-func Dial(cx appengine.Context, network, address string) (Conn, error) {
+func Dial(cx appengine.Context, network, address string) (Conn, error) { // lv3 AppEngine
 	c, err := socket.Dial(cx, network, address)
 	if err != nil {
 		return nil, err
@@ -70,8 +70,9 @@ func Dial(cx appengine.Context, network, address string) (Conn, error) {
 }
 
 // DialTimeout acts like Dial but takes timeouts for establishing the
-// connection to the server, writing a command and reading a reply.
-func DialTimeout(cx appengine.Context, network, address string, connectTimeout, readTimeout, writeTimeout time.Duration) (Conn, error) {
+// connection to the server, writing a command and reading a reply.  lv3 AppEngine
+func DialTimeout(cx appengine.Context, network, address string, connectTimeout, readTimeout,
+	writeTimeout time.Duration) (Conn, error) {
 	var c *socket.Conn
 	var err error
 	if connectTimeout > 0 {

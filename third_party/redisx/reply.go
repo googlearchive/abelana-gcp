@@ -13,9 +13,9 @@
 // under the License.
 
 // This file was forked and adapted from https://github.com/garyburd/redigo/
-// (pool.go & commandinfo.go) on 10/29/2014 at 6pm PDT
+// 10/29/2014 at 6pm PDT
 
-package abelana
+package redisx
 
 import (
 	"errors"

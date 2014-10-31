@@ -20,41 +20,40 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GoogleCloudPlatform/abelana-gcp/third_party/redisx"
+
 	"appengine"
 	"appengine/datastore"
 )
 
-var server string
-
 var (
-	pool          *Pool
-	redisPassword = ""
+	pool *redisx.Pool
 )
 
 // Note - I looked at adapting both Gary Burd's pool system and Vites pools to AppEngine, but ran
 // out of time as there were too many dependencies.
 
 func redisInit() {
-	server = redisExt
-	pool = newPool(server, redisPassword)
+	pool = newPool(aconfig.Redis, aconfig.RedisPW)
 }
 
-func newPool(server, password string) *Pool {
-	return &Pool{
+func newPool(server, password string) *redisx.Pool {
+	return &redisx.Pool{
 		MaxIdle:     3,
 		IdleTimeout: 115 * time.Second,
-		Dial: func(cx appengine.Context) (Conn, error) {
-			c, err := Dial(cx, "tcp", server)
+		Dial: func(cx appengine.Context) (redisx.Conn, error) {
+			c, err := redisx.Dial(cx, "tcp", server)
 			if err != nil {
 				return nil, err
 			}
-			// if _, err := c.Do("AUTH", password); err != nil {
-			// 	c.Close()
-			// 	return nil, err
-			// }
+			cx.Infof("pw: %v", password)
+			if _, err := c.Do("AUTH", password); err != nil {
+				c.Close()
+				return nil, err
+			}
 			return c, err
 		},
-		TestOnBorrow: func(c Conn, t time.Time) error {
+		TestOnBorrow: func(c redisx.Conn, t time.Time) error {
 			_, err := c.Do("PING")
 			return err
 		},
@@ -83,8 +82,8 @@ func addPhoto(cx appengine.Context, photoID string) {
 		conn := pool.Get(cx)
 		defer conn.Close()
 
-		set, err := Int(conn.Do("HSETNX", "IM:"+photoID, "date", p.Date)) // Set Date
-		if (err != nil && err != ErrNil) || set == 0 {
+		set, err := redisx.Int(conn.Do("HSETNX", "IM:"+photoID, "date", p.Date)) // Set Date
+		if (err != nil && err != redisx.ErrNil) || set == 0 {
 			return fmt.Errorf("duplicate %v %v", err, set)
 		}
 
@@ -98,8 +97,8 @@ func addPhoto(cx appengine.Context, photoID string) {
 
 		// Check the result and adjust list if nescessary.
 		for _, personID := range u.FollowsMe {
-			v, err := Int(conn.Receive())
-			if err != nil && err != ErrNil {
+			v, err := redisx.Int(conn.Receive())
+			if err != nil && err != redisx.ErrNil {
 				cx.Errorf("Addphoto: TL:%v %v", personID, err)
 			} else {
 				if v > 2000 {
@@ -131,8 +130,8 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 	conn := pool.Get(cx)
 	defer conn.Close()
 
-	list, err := Strings(conn.Do("LRANGE", "TL:"+userID, 0, -1))
-	if err != nil && err != ErrNil {
+	list, err := redisx.Strings(conn.Do("LRANGE", "TL:"+userID, 0, -1))
+	if err != nil && err != redisx.ErrNil {
 		cx.Errorf("GetTimeLine %v", err)
 	}
 	ix := 0
@@ -145,12 +144,12 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 			}
 		}
 	}
-	timeline = make([]TLEntry, 0, timelineBatchSize)
-	for i := 0; i < timelineBatchSize && i+ix < len(list); i++ {
+	timeline = make([]TLEntry, 0, aconfig.TimelineBatchSize)
+	for i := 0; i < aconfig.TimelineBatchSize && i+ix < len(list); i++ {
 		photoID := list[ix+i]
 
-		v, err := Strings(conn.Do("HMGET", "IM:"+photoID, "date", userID, "flag"))
-		if err != nil && err != ErrNil {
+		v, err := redisx.Strings(conn.Do("HMGET", "IM:"+photoID, "date", userID, "flag"))
+		if err != nil && err != redisx.ErrNil {
 			cx.Errorf("GetTimeLine HMGET %v", err)
 		}
 		if v[2] != "" {
@@ -159,13 +158,13 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 				continue // skip flag'd images
 			}
 		}
-		likes, err := Int(conn.Do("HLEN", "IM:"+photoID))
-		if err != nil && err != ErrNil {
+		likes, err := redisx.Int(conn.Do("HLEN", "IM:"+photoID))
+		if err != nil && err != redisx.ErrNil {
 			cx.Errorf("GetTimeLine HLEN %v", err)
 		}
 		s := strings.Split(photoID, ".")
-		dn, err := String(conn.Do("HGET", "HT:"+s[0], "dn"))
-		if err != nil && err != ErrNil {
+		dn, err := redisx.String(conn.Do("HGET", "HT:"+s[0], "dn"))
+		if err != nil && err != redisx.ErrNil {
 			cx.Errorf("GetTimeLine HLEN %v", err)
 		}
 		dt, err := strconv.ParseInt(v[0], 10, 64)
@@ -200,7 +199,7 @@ func getPersons(cx appengine.Context, personids []string) []Person {
 	}
 	conn.Flush()
 	for _, personID := range personids {
-		dn, _ := String(conn.Receive())
+		dn, _ := redisx.String(conn.Receive())
 		p := Person{"abelana#follower", personID, "", dn}
 		pl = append(pl, p)
 	}
@@ -213,8 +212,8 @@ func like(cx appengine.Context, userID, photoID string) {
 	conn := pool.Get(cx)
 	defer conn.Close()
 
-	_, err := Int(conn.Do("HSET", "IM:"+photoID, userID, "1"))
-	if err != nil && err != ErrNil {
+	_, err := redisx.Int(conn.Do("HSET", "IM:"+photoID, userID, "1"))
+	if err != nil && err != redisx.ErrNil {
 		cx.Errorf("like %v", err)
 	}
 }
@@ -224,8 +223,8 @@ func unlike(cx appengine.Context, userID, photoID string) {
 	conn := pool.Get(cx)
 	defer conn.Close()
 
-	_, err := Int(conn.Do("HDEL", "IM:"+photoID, userID))
-	if err != nil && err != ErrNil {
+	_, err := redisx.Int(conn.Do("HDEL", "IM:"+photoID, userID))
+	if err != nil && err != redisx.ErrNil {
 		cx.Errorf("unlike %v", err)
 	}
 }
@@ -235,8 +234,8 @@ func flag(cx appengine.Context, userID, photoID string) {
 	conn := pool.Get(cx)
 	defer conn.Close()
 
-	_, err := Int(conn.Do("HINCRBY", "IM:"+photoID, "flag", 1))
-	if err != nil && err != ErrNil {
+	_, err := redisx.Int(conn.Do("HINCRBY", "IM:"+photoID, "flag", 1))
+	if err != nil && err != redisx.ErrNil {
 		cx.Errorf("unlike %v", err)
 	}
 }

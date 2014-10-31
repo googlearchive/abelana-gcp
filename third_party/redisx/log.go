@@ -13,9 +13,9 @@
 // under the License.
 
 // This file was forked and adapted from https://github.com/garyburd/redigo/
-// (pool.go & commandinfo.go) on 10/29/2014 at 6pm PDT
+// 10/29/2014 at 6pm PDT
 
-package abelana
+package redisx
 
 import (
 	"bytes"
@@ -121,6 +121,6 @@ func (c *loggingConn) Receive() (interface{}, error) {
 	return reply, err
 }
 
-func (c *loggingConn) Cn() *socket.Conn {
-	return c.Cn()
+func (c *loggingConn) SocketConn() *socket.Conn { // lv3 AppEngine
+	return c.SocketConn()
 }
