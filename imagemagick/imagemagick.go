@@ -14,7 +14,6 @@ import (
 
 	"code.google.com/p/go.net/context"
 	auth "code.google.com/p/google-api-go-client/oauth2/v2"
-
 	"github.com/gographics/imagick/imagick"
 	"github.com/golang/oauth2/google"
 	"google.golang.org/cloud"
@@ -30,6 +29,8 @@ const (
 )
 
 var (
+	account = flag.String("account", "service-account.json", "path to service account JSON file")
+
 	// map with the suffixes and sizes to generate
 	sizes = map[string]struct{ x, y uint }{
 		"a": {480, 800},
@@ -43,21 +44,29 @@ var (
 		"i": {750, 750},
 	}
 
-	ctx context.Context
+	ctx    context.Context
+	client *http.Client
 )
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
+	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	transport := google.NewComputeEngineConfig("").NewTransport()
-	ctx = cloud.NewContext(projectID, &http.Client{Transport: transport})
+	ctx = cloud.NewContext(projectID, &http.Client{
+		Transport: google.NewComputeEngineConfig("").NewTransport(),
+	})
+
+	config, err := google.NewServiceAccountJSONConfig(*account, "https://www.googleapis.com/auth/userinfo.email")
+	if err != nil {
+		log.Fatal(err)
+	}
+	client = &http.Client{Transport: config.NewTransport()}
 
 	http.HandleFunc("/healthcheck", func(http.ResponseWriter, *http.Request) {})
 	http.HandleFunc("/", notificationHandler)
-	log.Println("server about to start listening on", listenAddress)
-	err := http.ListenAndServe(listenAddress, nil)
-	if err != nil {
+	log.Println("server listening on", listenAddress)
+
+	if err := http.ListenAndServe(listenAddress, nil); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -69,8 +78,7 @@ func notificationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := r.Header.Get("Authorization")
-	if ok, err := authorized(token); !ok {
+	if ok, err := authorized(r.Header.Get("Authorization")); !ok {
 		if err != nil {
 			log.Printf("authorize: %v", err)
 		}
@@ -79,7 +87,7 @@ func notificationHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	defer func() { log.Printf("done in %v", time.Since(start)) }()
+	defer func() { log.Printf("%v: processed in %v", name, time.Since(start)) }()
 
 	if err := processImage(bucket, name); err != nil {
 		// TODO: should this remove uploaded images?
@@ -88,10 +96,25 @@ func notificationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := notifyDone(name, token); err != nil {
+	if err := notifyDone(name); err != nil {
 		log.Println(err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func authorized(token string) (ok bool, err error) {
+	if fs := strings.Fields(token); len(fs) == 2 && fs[0] == "Bearer" {
+		token = fs[1]
+	} else {
+		return false, nil
+	}
+
+	svc, err := auth.New(http.DefaultClient)
+	if err != nil {
+		return false, err
+	}
+	tok, err := svc.Tokeninfo().Access_token(token).Do()
+	return err == nil && tok.Email == authEmail, err
 }
 
 func processImage(bucket, name string) error {
@@ -152,29 +175,12 @@ func processImage(bucket, name string) error {
 	return nil
 }
 
-func authorized(token string) (ok bool, err error) {
-	if fs := strings.Fields(token); len(fs) == 2 && fs[0] == "Bearer" {
-		token = fs[1]
-	} else {
-		return false, nil
-	}
-
-	svc, err := auth.New(http.DefaultClient)
-	if err != nil {
-		return false, err
-	}
-	tok, err := svc.Tokeninfo().Access_token(token).Do()
-	return err == nil && tok.Email == authEmail, err
-}
-
-func notifyDone(name, token string) (err error) {
+func notifyDone(name string) (err error) {
 	req, err := http.NewRequest("POST", pushURL+name, &bytes.Buffer{})
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", token)
-
-	res, err := http.DefaultClient.Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("photo push: %v", err)
 	}
