@@ -18,6 +18,7 @@ import (
 	//    "fmt"
 
 	"encoding/json"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,6 +28,7 @@ import (
 	"appengine/datastore"
 	"appengine/delay"
 	"appengine/urlfetch"
+	"appengine/user"
 
 	auth "code.google.com/p/google-api-go-client/oauth2/v2"
 
@@ -49,6 +51,8 @@ const (
 	uploadRetries     = 5
 	timelineBatchSize = 100
 )
+
+var aconfig *AbelanaConfig
 
 // In redis we store the following:
 // IM:uuuuuu.ppppppp HASH an imageID
@@ -73,12 +77,25 @@ var delayCopyImage = delay.Func("CopyImage001", copyUserPhoto)
 var delayAddPhoto = delay.Func("AddImage002", addPhoto)
 var delayINowFollow = delay.Func("FollowByID03", iNowFollow)
 
+// AbelanaConfig contains all the information we need to run Abelana
+type AbelanaConfig struct {
+	authEmail         string
+	projectID         string
+	bucket            string
+	redisPW           string
+	redis             string
+	timelineBatchSize int
+	uploadRetries     int
+	EnableBackdoor    bool
+	enableStubs       bool
+}
+
 // User is the root structure for everything.
 type User struct {
 	UserID      string
 	DisplayName string
 	Email       string
-	Persons     []string
+	People      []string
 }
 
 // Photo is how we keep images in Datastore
@@ -159,6 +176,8 @@ func AppEngine(c martini.Context, r *http.Request) {
 }
 
 func init() {
+	aconfig, _ = loadAbelanaConfig("private/abelana-config.json")
+
 	m := martini.Classic()
 	m.Use(AppEngine)
 
@@ -196,6 +215,19 @@ func init() {
 
 	http.Handle("/", m)
 	redisInit()
+}
+
+// loadAbelanaConfig loads the configuration from the config file specified by path.
+func loadAbelanaConfig(path string) (*AbelanaConfig, error) {
+	b, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var c AbelanaConfig
+	if err := json.Unmarshal(b, &c); err != nil {
+		return nil, err
+	}
+	return &c, nil
 }
 
 // Test does magic of the moment
@@ -385,7 +417,8 @@ func GetFollowing(cx appengine.Context, at Access, p martini.Params, w http.Resp
 			cx.Errorf("GetFollowing %v %v", at.ID(), err)
 			replyOk(w)
 		}
-		//		fl = &Persons{"abelana#followerList", user.Persons}
+		pl := getPersons(cx, user.People)
+		fl = &Persons{"abelana#followerList", pl}
 	} else {
 		fl = &Persons{"abelana#followerList",
 			[]Person{
@@ -404,7 +437,7 @@ func GetPerson(cx appengine.Context, at Access, p martini.Params, w http.Respons
 		user := &User{}
 		err := datastore.Get(cx, k1, &user)
 		if err != nil {
-			cx.Errorf("GetPerson %v %v %v", p["personid"], p["personid"], err)
+			cx.Errorf("GetPerson %v %v", p["personid"], err)
 			replyOk(w)
 		}
 		f = &Person{"abelana#follower", user.UserID, user.Email, user.DisplayName}
@@ -423,14 +456,14 @@ func FollowByID(cx appengine.Context, at Access, p martini.Params, w http.Respon
 		cx.Errorf("FollowByID %v %v %v", at.ID(), p["personid"], err)
 		replyOk(w)
 	}
-	sl := user.Persons
+	sl := user.People
 	if len(sl) == cap(sl) {
 		newSl := make([]string, len(sl), len(sl)+1)
 		copy(newSl, sl)
 		sl = newSl
 	}
-	user.Persons = sl[0 : len(sl)+1]
-	user.Persons[len(sl)] = p["personid"]
+	user.People = sl[0 : len(sl)+1]
+	user.People[len(sl)] = p["personid"]
 	_, err = datastore.Put(cx, k1, &user)
 	delayINowFollow.Call(cx, at.ID(), p["personid"])
 	replyOk(w)
@@ -454,9 +487,15 @@ func Statistics(cx appengine.Context, at Access, p martini.Params, w http.Respon
 // SetPhotoComments allows the users voice to be heard (PhotoComment) : Status
 func SetPhotoComments(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
 	s := strings.Split(p["photoid"], ".")
+	if len(s) != 2 {
+		replyOk(w)
+		return
+	}
+	userID, photoID := s[0], p["photoid"]
+
 	tod := time.Now().UTC().Unix()
-	k1 := datastore.NewKey(cx, "User", s[0], 0, nil)
-	k2 := datastore.NewKey(cx, "Photo", s[1], 0, k1)
+	k1 := datastore.NewKey(cx, "User", userID, 0, nil)
+	k2 := datastore.NewKey(cx, "Photo", photoID, 0, k1)
 	k3 := datastore.NewKey(cx, "Comment", "", tod, k2)
 	c := &Comment{at.ID(), p["text"], tod}
 	_, err := datastore.Put(cx, k3, c)
@@ -471,8 +510,13 @@ func GetPhotoComments(cx appengine.Context, at Access, p martini.Params, w http.
 	var c []Comment
 
 	s := strings.Split(p["photoid"], ".")
-	k1 := datastore.NewKey(cx, "User", s[0], 0, nil)
-	k2 := datastore.NewKey(cx, "Photo", s[1], 0, k1)
+	if len(s) != 2 {
+		replyOk(w)
+		return
+	}
+	userID, photoID := s[0], p["photoid"]
+	k1 := datastore.NewKey(cx, "User", userID, 0, nil)
+	k2 := datastore.NewKey(cx, "Photo", photoID, 0, k1)
 
 	q := datastore.NewQuery("Comment").Ancestor(k2).Order("Time")
 	_, err := q.GetAll(cx, &c)
@@ -488,11 +532,16 @@ func GetPhotoComments(cx appengine.Context, at Access, p martini.Params, w http.
 // Like let's the user tell of their joy (Photo) : Status
 func Like(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
 	s := strings.Split(p["photoid"], ".")
+	if len(s) != 2 {
+		replyOk(w)
+		return
+	}
+	userID, photoID := s[0], p["photoid"]
 
-	like(cx, at.ID(), s[0]+"."+s[1])
+	like(cx, at.ID(), photoID)
 
-	k1 := datastore.NewKey(cx, "User", s[0], 0, nil)
-	k2 := datastore.NewKey(cx, "Photo", s[1], 0, k1)
+	k1 := datastore.NewKey(cx, "User", userID, 0, nil)
+	k2 := datastore.NewKey(cx, "Photo", photoID, 0, k1)
 	k3 := datastore.NewKey(cx, "Like", at.ID(), 0, k2)
 	l := &ToLike{at.ID()}
 	_, err := datastore.Put(cx, k3, l)
@@ -505,8 +554,13 @@ func Like(cx appengine.Context, at Access, p martini.Params, w http.ResponseWrit
 // Unlike let's the user recind their +1 (Photo) : Status
 func Unlike(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
 	s := strings.Split(p["photoid"], ".")
-	k1 := datastore.NewKey(cx, "User", s[0], 0, nil)
-	k2 := datastore.NewKey(cx, "Photo", s[1], 0, k1)
+	if len(s) != 2 {
+		replyOk(w)
+		return
+	}
+	userID, photoID := s[0], p["photoid"]
+	k1 := datastore.NewKey(cx, "User", userID, 0, nil)
+	k2 := datastore.NewKey(cx, "Photo", photoID, 0, k1)
 	k3 := datastore.NewKey(cx, "Like", at.ID(), 0, k2)
 	err := datastore.Delete(cx, k3)
 	if err != nil {
@@ -514,12 +568,17 @@ func Unlike(cx appengine.Context, at Access, p martini.Params, w http.ResponseWr
 		replyOk(w)
 		return
 	}
-	unlike(cx, at.ID(), s[0]+"."+s[1])
+	unlike(cx, at.ID(), photoID)
 	replyOk(w)
 }
 
 // Flag will bring this to the administrators attention.
 func Flag(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
+	s := strings.Split(p["photoid"], ".")
+	if len(s) != 2 {
+		replyOk(w)
+		return
+	}
 	flag(cx, at.ID(), p["photoid"])
 
 	//  We should also write something to Datastore
@@ -533,7 +592,7 @@ func PostPhoto(cx appengine.Context, p martini.Params, w http.ResponseWriter, rq
 	otok := rq.Header.Get("Authorization")
 	if !appengine.IsDevAppServer() {
 		ok, err := authorized(cx, otok)
-		if !ok {
+		if !ok || err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return ``
 		}
@@ -545,7 +604,14 @@ func PostPhoto(cx appengine.Context, p martini.Params, w http.ResponseWriter, rq
 	return `ok`
 }
 
+// authorized verifies the auth token.  We could do this ourselves using Admin if our caller had used
+// the right service account, but this will do it for any account.
 func authorized(cx appengine.Context, token string) (bool, error) {
+	if user.IsAdmin(cx) {
+		cx.Infof("authorized - true")
+		return true, nil
+	}
+
 	if fs := strings.Fields(token); len(fs) == 2 && fs[0] == "Bearer" {
 		token = fs[1]
 	} else {

@@ -66,31 +66,19 @@ func iNowFollow(cx appengine.Context, userID, followerID string) {
 
 }
 
-// addPhoto is called to add a photo. This is allways called from a Delay, so returns are pointless
-func addPhoto(cx appengine.Context, filename string) {
+// addPhoto is called to add a photo. This is allways called from a Delay
+func addPhoto(cx appengine.Context, photoID string) {
 	err := func() error {
-		s := strings.Split(filename, ".")
-		if len(s) == 2 {
-			return nil // User identiy photo
-		}
-		if len(s) != 3 {
-			return fmt.Errorf("Bad filename format %v", filename)
-		}
-		// s[0] = userid, s[1] = random photo, s[3] = file extension
-		userID, photoID := s[0], s[0]+"."+s[1]
+		s := strings.Split(photoID, ".")
+
+		// s[0] = userid, s[1] = random photo
+		userID := s[0]
 		u, err := findUser(cx, userID)
 		if err != nil {
 			return fmt.Errorf("unable to find user %v %v", userID, err)
 		}
 
 		p := &Photo{photoID, time.Now().UTC().Unix()}
-
-		k1 := datastore.NewKey(cx, "User", s[0], 0, nil)
-		k2 := datastore.NewKey(cx, "Photo", s[1], 0, k1)
-		_, err = datastore.Put(cx, k2, p)
-		if err != nil {
-			return fmt.Errorf("datastore %v", err)
-		}
 
 		conn := pool.Get(cx)
 		defer conn.Close()
@@ -103,13 +91,13 @@ func addPhoto(cx appengine.Context, filename string) {
 		// TODO: Consider if these should be done in batches of 100 or so.
 
 		// Add to each follower's list
-		for _, personID := range u.Persons {
+		for _, personID := range u.People {
 			conn.Send("LPUSH", "TL:"+personID, photoID)
 		}
 		conn.Flush()
 
 		// Check the result and adjust list if nescessary.
-		for _, personID := range u.Persons {
+		for _, personID := range u.People {
 			v, err := Int(conn.Receive())
 			if err != nil && err != ErrNil {
 				cx.Errorf("Addphoto: TL:%v %v", personID, err)
@@ -122,6 +110,13 @@ func addPhoto(cx appengine.Context, filename string) {
 				}
 			}
 		}
+		k1 := datastore.NewKey(cx, "User", userID, 0, nil)
+		k2 := datastore.NewKey(cx, "Photo", photoID, 0, k1)
+		_, err = datastore.Put(cx, k2, p)
+		if err != nil {
+			return fmt.Errorf("datastore %v", err)
+		}
+
 		return nil
 	}()
 	if err != nil {
@@ -191,6 +186,25 @@ func addUser(cx appengine.Context, userID, displayName string) {
 	if err != nil {
 		cx.Errorf("addUser Exists %v", err)
 	}
+}
+
+// getPersons finds all the display names
+func getPersons(cx appengine.Context, personids []string) []Person {
+	pl := []Person{}
+
+	conn := pool.Get(cx)
+	defer conn.Close()
+
+	for _, personID := range personids {
+		conn.Send("HGET", "HT:"+personID, "dn")
+	}
+	conn.Flush()
+	for _, personID := range personids {
+		dn, _ := String(conn.Receive())
+		p := Person{"abelana#follower", personID, "", dn}
+		pl = append(pl, p)
+	}
+	return pl
 }
 
 // like the user on redis
