@@ -15,8 +15,6 @@
 package abelana
 
 import (
-	//    "fmt"
-
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -53,8 +51,6 @@ import (
 // 	timelineBatchSize = 100
 // )
 
-var aconfig *AbelanaConfig
-
 // In redis we store the following:
 // IM:uuuuuu.ppppppp HASH an imageID
 //   date  is the date the photo was added
@@ -70,123 +66,120 @@ var aconfig *AbelanaConfig
 // User >> Photo >> Like
 //               >> Comments
 
-var delayFunc = delay.Func("test003", func(cx appengine.Context, x string) {
-	cx.Infof("delay happened " + x)
-})
+var (
+	delayFunc = delay.Func("test003", func(cx appengine.Context, x string) {
+		cx.Infof("delay happened " + x)
+	})
+	delayCopyImage   = delay.Func("CopyImage001", copyUserPhoto)
+	delayAddPhoto    = delay.Func("AddImage002", addPhoto)
+	delayINowFollow  = delay.Func("FollowByID03", iNowFollow)
+	delayFindFollows = delay.Func("findFollows334", findFollows)
 
-var delayCopyImage = delay.Func("CopyImage001", copyUserPhoto)
-var delayAddPhoto = delay.Func("AddImage002", addPhoto)
-var delayINowFollow = delay.Func("FollowByID03", iNowFollow)
-var delayFindFollows = delay.Func("findFollows334", findFollows)
+	abelanaConfig = mustLoadConfig("private/abelana-config.json")
+)
 
-// AbelanaConfig contains all the information we need to run Abelana
-type AbelanaConfig struct {
-	AuthEmail         string
-	ProjectID         string
-	Bucket            string
-	RedisPW           string
-	Redis             string
-	TimelineBatchSize int
-	UploadRetries     int
-	EnableBackdoor    bool
-	EnableStubs       bool
-}
+type (
+	// AbelanaConfig contains all the information we need to run Abelana
+	AbelanaConfig struct {
+		AuthEmail         string
+		ProjectID         string
+		Bucket            string
+		RedisPW           string
+		Redis             string
+		TimelineBatchSize int
+		UploadRetries     int
+		EnableBackdoor    bool
+		EnableStubs       bool
+	}
 
-// User is the root structure for everything.
-type User struct {
-	UserID        string
-	DisplayName   string
-	Email         string
-	FollowsMe     []string
-	IFollow       []string
-	IWantToFollow []string
-}
+	// User is the root structure for everything.
+	User struct {
+		UserID        string
+		DisplayName   string
+		Email         string
+		FollowsMe     []string
+		IFollow       []string
+		IWantToFollow []string
+	}
 
-// Photo is how we keep images in Datastore
-type Photo struct {
-	PhotoID string
-	Date    int64
-}
+	// Photo is how we keep images in Datastore
+	Photo struct {
+		PhotoID string
+		Date    int64
+	}
 
-// ToLike knows about who likes you.
-type ToLike struct {
-	UserID string
-}
+	// ToLike knows about who likes you.
+	ToLike struct {
+		UserID string
+	}
 
-// ATOKJson is the json message for an Access Token (TEMPORARY - Until GitKit supports this)
-type ATOKJson struct {
-	Kind string `json:"kind"`
-	Atok string `json:"atok"`
-}
+	// ATOKJson is the json message for an Access Token (TEMPORARY - Until GitKit supports this)
+	ATOKJson struct {
+		Kind string `json:"kind"`
+		Atok string `json:"atok"`
+	}
 
-// Status is what we return if we have nothing to return
-type Status struct {
-	Kind   string `json:"kind"`
-	Status string `json:"status"`
-}
+	// Status is what we return if we have nothing to return
+	Status struct {
+		Kind   string `json:"kind"`
+		Status string `json:"status"`
+	}
 
-// TLEntry holds timeline entries
-type TLEntry struct {
-	Created int64  `json:"created"`
-	UserID  string `json:"userid"`
-	Name    string `json:"name"`
-	PhotoID string `json:"photoid"`
-	Likes   int    `json:"likes"`
-	ILike   bool   `json:"ilike"`
-}
+	// TLEntry holds timeline entries
+	TLEntry struct {
+		Created int64  `json:"created"`
+		UserID  string `json:"userid"`
+		Name    string `json:"name"`
+		PhotoID string `json:"photoid"`
+		Likes   int    `json:"likes"`
+		ILike   bool   `json:"ilike"`
+	}
 
-// Timeline the data the client sees.
-type Timeline struct {
-	Kind    string    `json:"kind"`
-	Entries []TLEntry `json:"entries"`
-}
+	// Timeline the data the client sees.
+	Timeline struct {
+		Kind    string    `json:"kind"`
+		Entries []TLEntry `json:"entries"`
+	}
 
-// Person holds information about our followers
-type Person struct {
-	kind     string `json:"kind,omitempty"`
-	PersonID string `json:"personid"`
-	Email    string `json:"email,omitempty"`
-	Name     string `json:"name"`
-}
+	// Person holds information about our followers
+	Person struct {
+		Kind     string `json:"kind,omitempty"`
+		PersonID string `json:"personid"`
+		Email    string `json:"email,omitempty"`
+		Name     string `json:"name"`
+	}
 
-// Persons holds a list of our followers
-type Persons struct {
-	kind    string   `json:"kind"`
-	Persons []Person `json:"persons"`
-}
+	// Persons holds a list of our followers
+	Persons struct {
+		Kind    string   `json:"kind"`
+		Persons []Person `json:"persons"`
+	}
 
-// Comment holds all comments
-type Comment struct {
-	PersonID string `json:"personid"`
-	Text     string `json:"text"`
-	Time     int64  `json:"time"`
-}
+	// Comment holds all comments
+	Comment struct {
+		PersonID string `json:"personid"`
+		Text     string `json:"text"`
+		Time     int64  `json:"time"`
+	}
 
-// Comments returned from GetComments()
-type Comments struct {
-	Kind    string    `json:"kind"`
-	Entries []Comment `json:"entries"`
-}
+	// Comments returned from GetComments()
+	Comments struct {
+		Kind    string    `json:"kind"`
+		Entries []Comment `json:"entries"`
+	}
 
-// Stats contains usefull user statistics
-type Stats struct {
-	Following int `json:"following"`
-	Followers int `json:"followers"`
-}
-
-// AppEngine middleware inserts a context where it's needed.
-func AppEngine(c martini.Context, r *http.Request) {
-	c.MapTo(appengine.NewContext(r), (*appengine.Context)(nil))
-}
+	// Stats contains usefull user statistics
+	Stats struct {
+		Following int `json:"following"`
+		Followers int `json:"followers"`
+	}
+)
 
 func init() {
-	var err error
-	aconfig, err = loadAbelanaConfig("private/abelana-config.json")
-	if err != nil {
-		log.Printf("init - ERROR %v", err)
-	}
 	m := martini.Classic()
-	m.Use(AppEngine)
+	m.Use(func(c martini.Context, r *http.Request) {
+		c.MapTo(appengine.NewContext(r), (*appengine.Context)(nil))
+	})
 
 	m.Get("/user/:gittok/login/:displayName/:photoUrl", Login)                  // => ATOKJson
 	m.Get("/user/:atok/refresh", Aauth, Refresh)                                // => ATOKJson
@@ -205,43 +198,33 @@ func init() {
 	m.Get("/user/:atok/timeline/:lastid", Aauth, GetTimeLine)                   // => Timeline
 	m.Get("/user/:atok/profile/:lastdate", Aauth, GetMyProfile)                 // => Timeline
 	m.Get("/user/:atok/following/:personid/profile/:lastdate", Aauth, FProfile) // => Timeline
-	m.Post("/photo/:atok/:photoid/comment/:text", Aauth, SetPhotoComments)      // => Status
-	m.Get("/photo/:atok/:photoid/comments", Aauth, GetPhotoComments)            // => Comments
-	m.Put("/photo/:atok/:photoid/like", Aauth, Like)                            // => Status
-	m.Delete("/photo/:atok/:photoid/like", Aauth, Unlike)                       // => Status
-	m.Get("/photo/:atok/:photoid/flag", Aauth, Flag)                            // => Status
+
+	m.Post("/photo/:atok/:photoid/comment/:text", Aauth, SetPhotoComments) // => Status
+	m.Get("/photo/:atok/:photoid/comments", Aauth, GetPhotoComments)       // => Comments
+	m.Put("/photo/:atok/:photoid/like", Aauth, Like)                       // => Status
+	m.Delete("/photo/:atok/:photoid/like", Aauth, Unlike)                  // => Status
+	m.Get("/photo/:atok/:photoid/flag", Aauth, Flag)                       // => Status
 
 	m.Post("/photopush/:superid", PostPhoto) // "ok"
 
-	if aconfig.EnableBackdoor {
-		m.Get("/les", Test)
+	if abelanaConfig.EnableBackdoor {
 		m.Get("/user/:gittok/login", Login)
 	}
 
-	tokenInit()
-
 	http.Handle("/", m)
-	redisInit()
 }
 
 // loadAbelanaConfig loads the configuration from the config file specified by path.
-func loadAbelanaConfig(path string) (*AbelanaConfig, error) {
+func mustLoadConfig(path string) *AbelanaConfig {
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
-		return nil, err
+		log.Fatalf("can't read Abelana config in file %q: %v", path, err)
 	}
-	c := &AbelanaConfig{}
-	if err := json.Unmarshal(b, c); err != nil {
-		return nil, err
+	var cfg AbelanaConfig
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		log.Fatalf("error parsing Abelana config in file %q: %v", path, err)
 	}
-	return c, nil
-}
-
-// Test does magic of the moment
-func Test(cx appengine.Context) string {
-	cx.Infof("Test...")
-	delayFunc.Call(cx, "hello world")
-	return `ok`
+	return &cfg
 }
 
 // replyJSON Given an object, convert to JSON and reply with it
@@ -273,7 +256,7 @@ func GetTimeLine(cx appengine.Context, at Access, p martini.Params, w http.Respo
 	var timeline []TLEntry
 	var err error
 
-	if !aconfig.EnableStubs {
+	if !abelanaConfig.EnableStubs {
 		timeline, err = getTimeline(cx, at.ID(), p["lastid"])
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -316,7 +299,7 @@ func GetMyProfile(cx appengine.Context, at Access, p martini.Params, w http.Resp
 	var err error
 	var timeline []TLEntry
 
-	if !aconfig.EnableStubs {
+	if !abelanaConfig.EnableStubs {
 		timeline, err = profileForUser(cx, at.ID(), p["lastdate"])
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -342,7 +325,7 @@ func FProfile(cx appengine.Context, at Access, p martini.Params, w http.Response
 	var err error
 	var timeline []TLEntry
 
-	if !aconfig.EnableStubs {
+	if !abelanaConfig.EnableStubs {
 		personID := p["personid"]
 		timeline, err = profileForUser(cx, personID, p["lastdate"])
 		if err != nil {
@@ -384,13 +367,13 @@ func profileForUser(cx appengine.Context, userID, lastdate string) ([]TLEntry, e
 		}
 		q = q.Filter("", lastDate)
 	}
-	q = q.Order("-Date").Limit(aconfig.TimelineBatchSize * 3)
+	q = q.Order("-Date").Limit(abelanaConfig.TimelineBatchSize * 3)
 	var photos []Photo
 	_, err = q.GetAll(cx, &photos)
 	if err != nil {
 		cx.Errorf("profileForUser get2 %v %v", userID, err)
 	}
-	timeline = make([]TLEntry, 0, aconfig.TimelineBatchSize*3)
+	timeline = make([]TLEntry, 0, abelanaConfig.TimelineBatchSize*3)
 
 	for _, p := range photos {
 		te := TLEntry{p.Date, userID, user.DisplayName, p.PhotoID, -1, false} // don't return anything for likes
@@ -414,51 +397,54 @@ func Import(cx appengine.Context, at Access, p martini.Params, w http.ResponseWr
 
 // GetFollowing - A list of those I follow (AToken) :
 func GetFollowing(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	fl := &Persons{}
-
-	if !aconfig.EnableStubs {
-		k1 := datastore.NewKey(cx, "User", at.ID(), 0, nil)
-		user := &User{}
-		err := datastore.Get(cx, k1, user)
-		if err != nil {
-			cx.Errorf("GetFollowing %v %v", at.ID(), err)
-			replyOk(w)
-		}
-		pl := getPersons(cx, user.IFollow)
-		fl = &Persons{"abelana#followerList", pl}
-	} else {
-		fl = &Persons{"abelana#followerList",
-			[]Person{
-				Person{"abelana#follower", "00001", "", "Les"},
-				Person{"abelana#follower", "12730648828453578083", "", "Zafir"}}}
+	if abelanaConfig.EnableStubs {
+		replyJSON(w, Persons{
+			Kind: "abelana#followerList",
+			Persons: []Person{
+				{"abelana#follower", "00001", "", "Les"},
+				{"abelana#follower", "12730648828453578083", "", "Zafir"},
+			},
+		})
+		return
 	}
-	replyJSON(w, fl)
+	var u User
+	err := datastore.Get(cx, datastore.NewKey(cx, "User", at.ID(), 0, nil), &u)
+	if err != nil {
+		cx.Errorf("GetFollowing %v %v", at.ID(), err)
+		replyOk(w)
+		return
+	}
+	ps, err := getPersons(cx, u.IFollow)
+	if err != nil {
+		cx.Errorf("GetFollowing %v %v", at.ID(), err)
+		replyOk(w)
+		return
+	}
+	replyJSON(w, Persons{
+		Kind:    "abelana#followerList",
+		Persons: ps,
+	})
 }
 
 // GetPerson -- find out about someone  : Person
 func GetPerson(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	f := &Person{}
-
-	if !aconfig.EnableStubs {
-		k1 := datastore.NewKey(cx, "User", p["personid"], 0, nil)
-		user := &User{}
-		err := datastore.Get(cx, k1, user)
-		if err != nil {
-			cx.Errorf("GetPerson %v %v", p["personid"], err)
-			replyOk(w)
-		}
-		f = &Person{"abelana#follower", user.UserID, user.Email, user.DisplayName}
-	} else {
-		f = &Person{"abelana#follower", "00001", "lesv@abelana-app.com", "Les Vogel"}
+	if abelanaConfig.EnableStubs {
+		replyJSON(w, &Person{"abelana#follower", "00001", "lesv@abelana-app.com", "Les Vogel"})
+		return
 	}
-	replyJSON(w, f)
+	var u User
+	err := datastore.Get(cx, datastore.NewKey(cx, "User", p["personid"], 0, nil), &u)
+	if err != nil {
+		cx.Errorf("GetPerson %v %v", p["personid"], err)
+		replyOk(w)
+		return
+	}
+	replyJSON(w, &Person{"abelana#follower", u.UserID, u.Email, u.DisplayName})
 }
 
 // FollowByID - will tell us about a new possible follower (FrReq) : Status
 func FollowByID(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	iFollow := p["personid"]
-	err := followById(cx, at.ID(), iFollow)
-	if err != nil {
+	if err := followById(cx, at.ID(), p["personid"]); err != nil {
 		cx.Errorf("FollowByID: %v", err)
 	}
 	replyOk(w)
@@ -728,7 +714,7 @@ func authorized(cx appengine.Context, token string) (bool, error) {
 		return false, err
 	}
 	cx.Infof("  tok %v", tok)
-	return tok.Email == aconfig.AuthEmail, nil
+	return tok.Email == abelanaConfig.AuthEmail, nil
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
