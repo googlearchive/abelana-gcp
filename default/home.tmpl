@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Favorite Weekday</title>
+<script type="text/javascript" src="//www.gstatic.com/authtoolkit/js/gitkit.js"></script>
+<link type="text/css" rel="stylesheet" href="//www.gstatic.com/authtoolkit/css/gitkit.css">
+</head>
+<body>
+{{if not .User}}
+<script type=text/javascript>
+  google.identitytoolkit.setConfig({
+    widgetUrl: '{{.WidgetURL}}',
+  });
+  google.identitytoolkit.signIn();
+</script>
+{{else}}
+<div id="navbar"></div>
+<script type=text/javascript>
+  google.identitytoolkit.signInButton(
+      '#navbar',
+      {
+        widgetUrl: '{{.WidgetURL}}',
+        signOutUrl: '{{.SignOutURL}}'
+      }
+  );
+</script>
+<br>
+<p>Hello {{.User.Name}}</p>
+<p>Your favorite weekday:</p>
+<form method="POST" action="{{.UpdateWeekdayURL}}">
+  <input type="hidden" name="xsrftoken" value="{{.UpdateWeekdayXSRFToken}}">
+  <select name="favorite">
+    {{range $index, $weekday := .Weekdays}}
+      <option value="{{$index}}" {{if eq $.WeekdayIndex $index}}selected{{end}}>{{$weekday}}</option>
+    {{end}}
+  </select>
+  <button type="submit">change</button>
+</form>
+<br>
+<p>Tired of FavWeekday?</p>
+<form method="POST" action="{{.DeleteAccountURL}}">
+  <input type="hidden" name="xsrftoken" value="{{.DeleteAccountXSRFToken}}">
+  <button type="submit">delete account</button>
+</form>
+{{end}}
+</body>
+</html>

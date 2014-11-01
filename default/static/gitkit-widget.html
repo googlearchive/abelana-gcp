@@ -1,0 +1,24 @@
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+</head>
+<body>
+<div id="gitkitWidgetDiv"></div>
+<script type="text/javascript" src="//www.gstatic.com/authtoolkit/js/gitkit.js"></script>
+<link type="text/css" rel="stylesheet" href="//www.gstatic.com/authtoolkit/css/gitkit.css" />
+<script type="text/javascript">
+  var config = {
+      apiKey: 'AIzaSyAHcspnlUqnujNEsmaYvj_INhddAWctpIg',
+      signInSuccessUrl: 'https://abelana-222.appspot.com/success',
+      idps: ["google","facebook","yahoo"],
+      oobActionUrl: 'https://localhost/',
+      siteName: 'this site'
+  };
+  // The HTTP POST body should be escaped by the server to prevent XSS
+  window.google.identitytoolkit.start(
+      '#gitkitWidgetDiv', // accepts any CSS selector
+      config,
+      '');
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Favorite Weekday</title>
+<script type="text/javascript" src="//www.gstatic.com/authtoolkit/js/gitkit.js"></script>
+<link type="text/css" rel="stylesheet" href="//www.gstatic.com/authtoolkit/css/gitkit.css">
+</head>
+<body>
+<div id="gitkitWidget"></div>
+<script type="text/javascript">
+  google.identitytoolkit.start(
+    '#gitkitWidget',
+    {
+      apiKey: '{{.BrowserAPIKey}}',
+      signInSuccessUrl: '{{.SignInSuccessUrl}}',
+      oobActionUrl: '{{.OOBActionURL}}',
+    },
+    '{{.POSTBody}}');
+</script>
+</body>
+</html>

@@ -46,7 +46,6 @@ func newPool(server, password string) *redisx.Pool {
 			if err != nil {
 				return nil, err
 			}
-			cx.Infof("pw: %v", password)
 			if _, err := c.Do("AUTH", password); err != nil {
 				c.Close()
 				return nil, err

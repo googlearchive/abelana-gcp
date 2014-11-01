@@ -93,6 +93,12 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	var dName, photoURL string
 
 	haveCerts(cx)
+	client, err := gitkit.NewWithContext(cx, gclient)
+	if err != nil {
+		cx.Errorf("Failed to create a gitkit.Client with a context: %s", err)
+		http.Error(w, "Initialization failure", http.StatusInternalServerError)
+		return
+	}
 	dn, err := decodeSegment(p["displayName"])
 	if err != nil {
 		dName = "Name Unavailable"
@@ -113,13 +119,12 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 		dName = "Les Vogel"
 		photoURL = "https://lh4.googleusercontent.com/-Nt9PfYHmQeI/AAAAAAAAAAI/AAAAAAAAANI/2mbohwDXFKI/photo.jpg?sz=50"
 	} else {
-		token, err = VerifyToken(cx, p["gittok"]) // TODO FIXME should be gitKit.ValidateToken
-		// token, err = gclient.ValidateToken(p["gitkit"])
+		token, err = client.ValidateToken(p["gittok"])
 		if err != nil {
+			cx.Errorf("git.ValidateToken: %v")
 			http.Error(w, "Invalid Token", http.StatusUnauthorized)
 			return
 		}
-		// TODO verify the Audience is correct
 	}
 
 	at := &AccToken{token.LocalID, string(serverKey), time.Now().UTC().Unix(),
