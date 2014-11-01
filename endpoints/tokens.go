@@ -106,7 +106,7 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	} else {
 		photoURL = string(pu)
 	}
-	if abelanaConfig.EnableBackdoor && p["gittok"] == "Les" {
+	if abelanaConfig().EnableBackdoor && p["gittok"] == "Les" {
 		err = nil
 		token = &gitkit.Token{"Magic", "**AUDIENCE**", time.Now().UTC(),
 			time.Now().UTC().Add(1 * time.Hour), "00001", "lesv@abelana-app.com",
@@ -150,7 +150,7 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 		// Not found, must create
 		createUser(cx, User{UserID: at.UserID, DisplayName: dName, Email: token.Email})
 		if photoURL == "" {
-			delayCopyImage.Call(cx, photoURL, at.UserID) // was CopyUserPhoto
+			delayCopyUserPhoto.Call(cx, photoURL, at.UserID)
 		}
 		delayFindFollows.Call(cx, at.UserID, at.Email)
 	}
@@ -233,7 +233,7 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 
 	haveCerts(cx)
 	// FIXME -- TEMPORARY BACKDOOR
-	if abelanaConfig.EnableBackdoor && strings.HasPrefix(p["atok"], "LES") {
+	if abelanaConfig().EnableBackdoor && strings.HasPrefix(p["atok"], "LES") {
 		at = &AccToken{"00001", string(serverKey), time.Now().UTC().Unix(),
 			time.Now().UTC().Add(120 * 24 * time.Hour).Unix(), "lesv@abelana-app.com"}
 	} else {

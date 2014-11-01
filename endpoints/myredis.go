@@ -29,23 +29,16 @@ import (
 // Note - I looked at adapting both Gary Burd's pool system and Vites pools to AppEngine, but ran
 // out of time as there were too many dependencies.
 
-var pool *redisx.Pool
-
-func init() {
-	pool = newPool(abelanaConfig.Redis, abelanaConfig.RedisPW)
-}
-
-func newPool(server, password string) *redisx.Pool {
-	return &redisx.Pool{
+var (
+	pool = redisx.Pool{
 		MaxIdle:     3,
 		IdleTimeout: 115 * time.Second,
 		Dial: func(cx appengine.Context) (redisx.Conn, error) {
-			c, err := redisx.Dial(cx, "tcp", server)
+			c, err := redisx.Dial(cx, "tcp", abelanaConfig().Redis)
 			if err != nil {
 				return nil, err
 			}
-			cx.Infof("pw: %v", password)
-			if _, err := c.Do("AUTH", password); err != nil {
+			if _, err := c.Do("AUTH", abelanaConfig().RedisPW); err != nil {
 				c.Close()
 				return nil, err
 			}
@@ -56,11 +49,11 @@ func newPool(server, password string) *redisx.Pool {
 			return err
 		},
 	}
-}
+)
 
 // iNowFollow is Called when the user wants to follow someone
 func iNowFollow(cx appengine.Context, userID, followerID string) {
-
+	// TODO: implement
 }
 
 // addPhoto is called to add a photo. This is allways called from a Delay
@@ -134,7 +127,7 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 		}
 	}
 	var timeline []TLEntry
-	for i := 0; i < abelanaConfig.TimelineBatchSize && i+ix < len(list); i++ {
+	for i := 0; i < abelanaConfig().TimelineBatchSize && i+ix < len(list); i++ {
 		photoID := list[ix+i]
 
 		v, err := redisx.Strings(conn.Do("HMGET", "IM:"+photoID, "date", userID, "flag"))
@@ -177,8 +170,8 @@ func addUser(cx appengine.Context, id, name string) error {
 func getPersons(cx appengine.Context, ids []string) ([]Person, error) {
 	conn := pool.Get(cx)
 	defer conn.Close()
-	for _, personID := range ids {
-		conn.Send("HGET", "HT:"+personID, "dn")
+	for _, id := range ids {
+		conn.Send("HGET", "HT:"+id, "dn")
 	}
 	conn.Flush()
 

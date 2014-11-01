@@ -24,7 +24,6 @@ import (
 	"appengine/urlfetch"
 
 	"code.google.com/p/goauth2/oauth"
-
 	"google.golang.org/cloud"
 	"google.golang.org/cloud/storage"
 )
@@ -77,8 +76,8 @@ func copyUserPhoto(cx appengine.Context, url string, userID string) error {
 	}
 	clnt := &http.Client{Transport: transport}
 
-	ctx := cloud.NewContext(abelanaConfig.ProjectID, clnt)
-	w := storage.NewWriter(ctx, abelanaConfig.Bucket, userID+".jpg", &storage.Object{ContentType: "image/jpg"})
+	ctx := cloud.NewContext(abelanaConfig().ProjectID, clnt)
+	w := storage.NewWriter(ctx, abelanaConfig().Bucket, userID+".jpg", &storage.Object{ContentType: "image/jpg"})
 	defer w.Close()
 
 	_, err = io.Copy(w, resp.Body)
