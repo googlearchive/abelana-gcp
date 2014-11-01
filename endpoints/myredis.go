@@ -26,28 +26,19 @@ import (
 	"appengine/datastore"
 )
 
-var (
-	pool *redisx.Pool
-)
-
 // Note - I looked at adapting both Gary Burd's pool system and Vites pools to AppEngine, but ran
 // out of time as there were too many dependencies.
 
-func redisInit() {
-	pool = newPool(aconfig.Redis, aconfig.RedisPW)
-}
-
-func newPool(server, password string) *redisx.Pool {
-	return &redisx.Pool{
+var (
+	pool = redisx.Pool{
 		MaxIdle:     3,
 		IdleTimeout: 115 * time.Second,
 		Dial: func(cx appengine.Context) (redisx.Conn, error) {
-			c, err := redisx.Dial(cx, "tcp", server)
+			c, err := redisx.Dial(cx, "tcp", abelanaConfig().Redis)
 			if err != nil {
 				return nil, err
 			}
-			cx.Infof("pw: %v", password)
-			if _, err := c.Do("AUTH", password); err != nil {
+			if _, err := c.Do("AUTH", abelanaConfig().RedisPW); err != nil {
 				c.Close()
 				return nil, err
 			}
@@ -58,75 +49,66 @@ func newPool(server, password string) *redisx.Pool {
 			return err
 		},
 	}
-}
+)
 
 // iNowFollow is Called when the user wants to follow someone
 func iNowFollow(cx appengine.Context, userID, followerID string) {
-
+	// TODO: implement
 }
 
 // addPhoto is called to add a photo. This is allways called from a Delay
-func addPhoto(cx appengine.Context, photoID string) {
-	err := func() error {
-		s := strings.Split(photoID, ".")
+func addPhoto(cx appengine.Context, photoID string) error {
+	s := strings.Split(photoID, ".")
 
-		// s[0] = userid, s[1] = random photo
-		userID := s[0]
-		u, err := findUser(cx, userID)
-		if err != nil {
-			return fmt.Errorf("unable to find user %v %v", userID, err)
+	// s[0] = userid, s[1] = random photo
+	userID := s[0]
+	u, err := findUser(cx, userID)
+	if err != nil {
+		return fmt.Errorf("addPhoto: unable to find user %v %v", userID, err)
+	}
+
+	p := &Photo{photoID, time.Now().UTC().Unix()}
+
+	conn := pool.Get(cx)
+	defer conn.Close()
+
+	set, err := redisx.Int(conn.Do("HSETNX", "IM:"+photoID, "date", p.Date)) // Set Date
+	if (err != nil && err != redisx.ErrNil) || set == 0 {
+		return fmt.Errorf("addPhoto: duplicate %v %v", err, set)
+	}
+
+	// TODO: Consider if these should be done in batches of 100 or so.
+
+	// Add to each follower's list
+	for _, f := range u.FollowsMe {
+		conn.Send("LPUSH", "TL:"+f, photoID)
+	}
+	conn.Flush()
+
+	// Check the result and adjust list if nescessary.
+	for _, f := range u.FollowsMe {
+		v, err := redisx.Int(conn.Receive())
+		if err != nil && err != redisx.ErrNil {
+			cx.Errorf("addPhoto: get TL:%v %v", f, err)
+			continue
 		}
-
-		p := &Photo{photoID, time.Now().UTC().Unix()}
-
-		conn := pool.Get(cx)
-		defer conn.Close()
-
-		set, err := redisx.Int(conn.Do("HSETNX", "IM:"+photoID, "date", p.Date)) // Set Date
-		if (err != nil && err != redisx.ErrNil) || set == 0 {
-			return fmt.Errorf("duplicate %v %v", err, set)
-		}
-
-		// TODO: Consider if these should be done in batches of 100 or so.
-
-		// Add to each follower's list
-		for _, personID := range u.FollowsMe {
-			conn.Send("LPUSH", "TL:"+personID, photoID)
-		}
-		conn.Flush()
-
-		// Check the result and adjust list if nescessary.
-		for _, personID := range u.FollowsMe {
-			v, err := redisx.Int(conn.Receive())
-			if err != nil && err != redisx.ErrNil {
-				cx.Errorf("Addphoto: TL:%v %v", personID, err)
-			} else {
-				if v > 2000 {
-					_, err := conn.Do("RPOP", "TL:"+personID)
-					if err != nil {
-						cx.Errorf("AddPhoto: RPOP TL:%v %v", personID, err)
-					}
-				}
+		if v > 2000 {
+			if _, err := conn.Do("RPOP", "TL:"+f); err != nil {
+				cx.Errorf("addPhoto: RPOP TL:%v %v", f, err)
 			}
 		}
-		k1 := datastore.NewKey(cx, "User", userID, 0, nil)
-		k2 := datastore.NewKey(cx, "Photo", photoID, 0, k1)
-		_, err = datastore.Put(cx, k2, p)
-		if err != nil {
-			return fmt.Errorf("datastore %v", err)
-		}
-
-		return nil
-	}()
-	if err != nil {
-		cx.Errorf("addPhoto: %v", err)
 	}
+	k := datastore.NewKey(cx, "Photo", photoID, 0,
+		datastore.NewKey(cx, "User", userID, 0, nil),
+	)
+	if _, err := datastore.Put(cx, k, p); err != nil {
+		return fmt.Errorf("addPhoto: put photo in datastore %v", err)
+	}
+	return nil
 }
 
 // getTimeline returns the user's Timeline, you could insert additional things here as well.
 func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error) {
-	timeline := []TLEntry{}
-
 	conn := pool.Get(cx)
 	defer conn.Close()
 
@@ -144,15 +126,15 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 			}
 		}
 	}
-	timeline = make([]TLEntry, 0, aconfig.TimelineBatchSize)
-	for i := 0; i < aconfig.TimelineBatchSize && i+ix < len(list); i++ {
+	var timeline []TLEntry
+	for i := 0; i < abelanaConfig().TimelineBatchSize && i+ix < len(list); i++ {
 		photoID := list[ix+i]
 
 		v, err := redisx.Strings(conn.Do("HMGET", "IM:"+photoID, "date", userID, "flag"))
 		if err != nil && err != redisx.ErrNil {
 			cx.Errorf("GetTimeLine HMGET %v", err)
 		}
-		if v[2] != "" {
+		if len(v) > 2 && v[2] != "" {
 			flags, err := strconv.Atoi(v[2])
 			if err == nil && flags > 1 {
 				continue // skip flag'd images
@@ -175,67 +157,67 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 }
 
 // addUser adds the user to redis
-func addUser(cx appengine.Context, userID, displayName string) {
-
+func addUser(cx appengine.Context, id, name string) error {
 	conn := pool.Get(cx)
 	defer conn.Close()
 
 	// See if we have done this already, block others.
-	_, err := conn.Do("HSET", "HT:"+userID, "dn", displayName)
-	if err != nil {
-		cx.Errorf("addUser Exists %v", err)
-	}
+	_, err := conn.Do("HSET", "HT:"+id, "dn", name)
+	return err
 }
 
 // getPersons finds all the display names
-func getPersons(cx appengine.Context, personids []string) []Person {
-	pl := []Person{}
-
+func getPersons(cx appengine.Context, ids []string) ([]Person, error) {
 	conn := pool.Get(cx)
 	defer conn.Close()
-
-	for _, personID := range personids {
-		conn.Send("HGET", "HT:"+personID, "dn")
+	for _, id := range ids {
+		conn.Send("HGET", "HT:"+id, "dn")
 	}
 	conn.Flush()
-	for _, personID := range personids {
-		dn, _ := redisx.String(conn.Receive())
-		p := Person{"abelana#follower", personID, "", dn}
-		pl = append(pl, p)
+
+	var pl []Person
+	for _, id := range ids {
+		n, err := redisx.String(conn.Receive())
+		if err != nil {
+			return nil, fmt.Errorf("getPersons: receive name: %v", err)
+		}
+		pl = append(pl, Person{Kind: "abelana#follower", PersonID: id, Name: n})
 	}
-	return pl
+	return pl, nil
 }
 
 // like the user on redis
-func like(cx appengine.Context, userID, photoID string) {
-
+func like(cx appengine.Context, userID, photoID string) error {
 	conn := pool.Get(cx)
 	defer conn.Close()
 
 	_, err := redisx.Int(conn.Do("HSET", "IM:"+photoID, userID, "1"))
 	if err != nil && err != redisx.ErrNil {
-		cx.Errorf("like %v", err)
+		return fmt.Errorf("like %v", err)
 	}
+	return nil
 }
 
 // unlike
-func unlike(cx appengine.Context, userID, photoID string) {
+func unlike(cx appengine.Context, userID, photoID string) error {
 	conn := pool.Get(cx)
 	defer conn.Close()
 
 	_, err := redisx.Int(conn.Do("HDEL", "IM:"+photoID, userID))
 	if err != nil && err != redisx.ErrNil {
-		cx.Errorf("unlike %v", err)
+		return fmt.Errorf("unlike %v", err)
 	}
+	return nil
 }
 
 // flag will tell us that things may not be quite right with this image.
-func flag(cx appengine.Context, userID, photoID string) {
+func flag(cx appengine.Context, userID, photoID string) error {
 	conn := pool.Get(cx)
 	defer conn.Close()
 
 	_, err := redisx.Int(conn.Do("HINCRBY", "IM:"+photoID, "flag", 1))
 	if err != nil && err != redisx.ErrNil {
-		cx.Errorf("unlike %v", err)
+		return fmt.Errorf("unlike %v", err)
 	}
+	return nil
 }
