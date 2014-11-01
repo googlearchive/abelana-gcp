@@ -30,18 +30,12 @@ import (
 )
 
 // findUser Lookup the user (This can be called from a Transaction)
-func findUser(cx appengine.Context, userID string) (User, error) {
-	var user User
+func findUser(cx appengine.Context, id string) (*User, error) {
+	key := datastore.NewKey(cx, "User", id, 0, nil)
 
-	cx.Infof("FindUser: %v", userID)
-
-	key := datastore.NewKey(cx, "User", userID, 0, nil)
-	cx.Infof("  Key=%v", key)
-	err := datastore.Get(cx, key, &user)
-	if err != nil {
-		return User{}, err
-	}
-	return user, nil
+	u := &User{}
+	err := datastore.Get(cx, key, u)
+	return u, err
 }
 
 // createUser will create the initial datastore entry for the user
@@ -81,8 +75,8 @@ func copyUserPhoto(cx appengine.Context, url string, userID string) error {
 	}
 	clnt := &http.Client{Transport: transport}
 
-	ctx := cloud.NewContext(aconfig.ProjectID, clnt)
-	w := storage.NewWriter(ctx, aconfig.Bucket, userID+".jpg", &storage.Object{ContentType: "image/jpg"})
+	ctx := cloud.NewContext(abelanaConfig().ProjectID, clnt)
+	w := storage.NewWriter(ctx, abelanaConfig().Bucket, userID+".jpg", &storage.Object{ContentType: "image/jpg"})
 	defer w.Close()
 
 	_, err = io.Copy(w, resp.Body)

@@ -34,12 +34,13 @@ import (
 	"github.com/google/identity-toolkit-go-client/gitkit"
 )
 
-var gclient *gitkit.Client
-var serverKey []byte
-var publicCerts []*x509.Certificate
+var (
+	gclient     *gitkit.Client
+	serverKey   []byte
+	publicCerts []*x509.Certificate
+)
 
-// tokenInit will setup to use GitKit
-func tokenInit() {
+func init() {
 	var config *gitkit.Config
 	var err error
 	// Provide configuration. gitkit.LoadConfig() can also be used to load
@@ -50,7 +51,7 @@ func tokenInit() {
 		config, err = gitkit.LoadConfig("private/gitkit-server-config.json")
 	}
 	if err != nil {
-		panic("Unable to initialize gitkit config ")
+		log.Fatalf("Unable to initialize gitkit config")
 	}
 	gclient, err = gitkit.New(config)
 	if err != nil {
@@ -111,7 +112,7 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	} else {
 		photoURL = string(pu)
 	}
-	if aconfig.EnableBackdoor && p["gittok"] == "Les" {
+	if abelanaConfig().EnableBackdoor && p["gittok"] == "Les" {
 		err = nil
 		token = &gitkit.Token{"Magic", "**AUDIENCE**", time.Now().UTC(),
 			time.Now().UTC().Add(1 * time.Hour), "00001", "lesv@abelana-app.com",
@@ -149,13 +150,12 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	replyJSON(w, &ATOKJson{"abelana#accessToken", strings.Join(parts, ".")})
 
 	// Look us up in datastore and be happy.
-	user, err := findUser(cx, at.UserID)
+	_, err = findUser(cx, at.UserID)
 	if err != nil {
 		// Not found, must create
-		user = User{UserID: at.UserID, DisplayName: dName, Email: token.Email}
-		createUser(cx, user)
+		createUser(cx, User{UserID: at.UserID, DisplayName: dName, Email: token.Email})
 		if photoURL == "" {
-			delayCopyImage.Call(cx, photoURL, at.UserID) // was CopyUserPhoto
+			delayCopyUserPhoto.Call(cx, photoURL, at.UserID)
 		}
 		delayFindFollows.Call(cx, at.UserID, at.Email)
 	}
@@ -237,7 +237,8 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 	var at *AccToken
 
 	haveCerts(cx)
-	if aconfig.EnableBackdoor && strings.HasPrefix(p["atok"], "LES") { // FIXME -- TEMPORARY BACKDOOR
+	// FIXME -- TEMPORARY BACKDOOR
+	if abelanaConfig().EnableBackdoor && strings.HasPrefix(p["atok"], "LES") {
 		at = &AccToken{"00001", string(serverKey), time.Now().UTC().Unix(),
 			time.Now().UTC().Add(120 * 24 * time.Hour).Unix(), "lesv@abelana-app.com"}
 	} else {
@@ -325,7 +326,7 @@ func VerifyToken(cx appengine.Context, token string) (*gitkit.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := struct {
+	var t struct {
 		Iss        string `json:"iss,omitempty"`
 		Aud        string `json:"aud,omitempty"`
 		Iat        int64  `json:"iat,omitempty"`
@@ -334,7 +335,7 @@ func VerifyToken(cx appengine.Context, token string) (*gitkit.Token, error) {
 		Email      string `json:"email,omitempty"`
 		Verified   bool   `json:"verified,omitempty"`
 		ProviderID string `json:"providerId,omitempty"`
-	}{}
+	}
 	if err = json.Unmarshal(c, &t); err != nil {
 		return nil, err
 	}
