@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"log"
-	"sync"
 )
 
 // AbelanaConfig contains all the information we need to run Abelana
@@ -20,21 +19,12 @@ type AbelanaConfig struct {
 	EnableStubs       bool
 }
 
-var config struct {
-	sync.Mutex
-	c *AbelanaConfig
-}
+var config = mustLoadConfig("private/abelana-config.json")
 
 func abelanaConfig() *AbelanaConfig {
-	config.Lock()
-	defer config.Unlock()
-	if config.c == nil {
-		config.c = mustLoadConfig("private/abelana-config.json")
-	}
-	return config.c
+	return config
 }
 
-// loadAbelanaConfig loads the configuration from the config file specified by path.
 func mustLoadConfig(path string) *AbelanaConfig {
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
