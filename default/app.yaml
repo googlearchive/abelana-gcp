@@ -1,9 +1,9 @@
+application: abelana-222
 module: default
 version: 1
 
-runtime: python27
-api_version: 1
-threadsafe: yes
+runtime: go
+api_version: go1
 
 #instance_class: F1
 #automatic_scaling:
@@ -13,6 +13,26 @@ handlers:
 - url: /
   static_files: static/index.html
   upload: static/index.html
+  secure: always
+
+- url: /d/gitkit
+  script: _go_app
+  secure: always
+
+- url: /d/signOut
+  script: _go_app
+  secure: always
+
+- url: /d/oobAction
+  script: _go_app
+  secure: always
+
+- url: /d/update
+  script: _go_app
+  secure: always
+
+- url: /d/deleteAccount
+  script: _go_app
   secure: always
 
 - url: /img/*
