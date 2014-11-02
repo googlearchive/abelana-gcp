@@ -38,7 +38,7 @@ import (
 //   date  is the date the photo was added
 //   flag  DON'T SHOW THIS TO OTHERS 'TIL REVIEW -- must get +2
 //   uuuuuu is the id of a user that likes the photo
-//   (Total count of likes is (HLEN k) -1)
+//   (Total count of likes is (HLEN k) -2)
 //
 // TL:uuuuuu LIST The timeline[max 2000] for each user. (list of photos)
 // HT:uuuuuu HASH
@@ -48,11 +48,14 @@ import (
 // User >> Photo >> Like
 //               >> Comments
 
+var DEBUG = true
+
 var (
 	delayCopyUserPhoto = delay.Func("copyUserPhoto", copyUserPhoto)
 	delayAddPhoto      = delay.Func("addPhoto", addPhoto)
 	delayINowFollow    = delay.Func("iNowFollow", iNowFollow)
 	delayFindFollows   = delay.Func("findFollows", findFollows)
+	delayInitialPhotos = delay.Func("initialPhotos", initialPhotos)
 )
 
 type (
@@ -61,9 +64,9 @@ type (
 		UserID        string
 		DisplayName   string
 		Email         string
-		FollowsMe     []string
+		FollowsMe     []string // list of userID's
 		IFollow       []string
-		IWantToFollow []string
+		IWantToFollow []string // list of email addresses
 	}
 
 	// Photo is how we keep images in Datastore
@@ -309,8 +312,8 @@ func profileForUser(cx appengine.Context, userID, lastDate string) ([]TLEntry, e
 		}
 		q = q.Filter("", lastDate)
 	}
-	// TODO: TimelineBatchSize in here?
-	q = q.Order("-Date").Limit(abelanaConfig().TimelineBatchSize * 3)
+	// TimelineBatchSize guides our paging mechanism.
+	q = q.Order("-Date").Limit(abelanaConfig().TimelineBatchSize)
 	var photos []Photo
 	_, err = q.GetAll(cx, &photos)
 	if err != nil {
@@ -327,6 +330,9 @@ func profileForUser(cx appengine.Context, userID, lastDate string) ([]TLEntry, e
 			Likes:   -1, // TODO: don't return the likes in the profile for users
 			ILike:   false},
 		)
+	}
+	if DEBUG {
+		cx.Infof("profileForUser: %v", tl)
 	}
 	return tl, nil
 }
@@ -373,6 +379,9 @@ func GetFollowing(cx appengine.Context, at Access, p martini.Params, w http.Resp
 		Kind:    "abelana#followerList",
 		Persons: ps,
 	})
+	if DEBUG {
+		cx.Infof("GetFollowing: %v", ps)
+	}
 }
 
 // GetPerson -- find out about someone  : Person
@@ -389,6 +398,9 @@ func GetPerson(cx appengine.Context, at Access, p martini.Params, w http.Respons
 		return
 	}
 	replyJSON(w, &Person{"abelana#follower", u.UserID, u.Email, u.DisplayName})
+	if DEBUG {
+		cx.Infof("GetPerson: %v %v %v", u.UserID, u.Email, u.DisplayName)
+	}
 }
 
 // FollowByID - will tell us about a new possible follower (FrReq) : Status
@@ -512,7 +524,12 @@ func followById(cx appengine.Context, userID, followingID string) error {
 
 // Statistics will tell you about a user
 func Statistics(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	st := &Stats{300, 30}
+	u, err := findUser(cx, at.ID())
+	if err != nil {
+		cx.Errorf("Statistics %v", err)
+		replyJSON(w, &Stats{-1, -1})
+	}
+	st := &Stats{len(u.IFollow), len(u.FollowsMe)}
 	replyJSON(w, st)
 }
 
@@ -623,6 +640,7 @@ func Flag(cx appengine.Context, at Access, p martini.Params, w http.ResponseWrit
 }
 
 // PostPhoto lets us know that we have a photo, we then tell both DataStore and Redis
+// What is sent is just the id, either uuuuu.rrrrr or uuuuu where u=userID, and rrrrr is random photoID
 func PostPhoto(cx appengine.Context, p martini.Params, w http.ResponseWriter, rq *http.Request) string {
 	cx.Infof("PostPhoto %v", p["superid"])
 	otok := rq.Header.Get("Authorization")
@@ -634,7 +652,7 @@ func PostPhoto(cx appengine.Context, p martini.Params, w http.ResponseWriter, rq
 		}
 	}
 	s := strings.Split(p["superid"], ".")
-	if len(s) == 3 { // We only need to call for userid.photoID.webp
+	if len(s) == 2 { // We only need to call for userid.photoID.webp
 		delayAddPhoto.Call(cx, p["superid"])
 	}
 	return `ok`

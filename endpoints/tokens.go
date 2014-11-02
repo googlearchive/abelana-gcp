@@ -21,7 +21,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -154,10 +153,9 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	if err != nil {
 		// Not found, must create
 		createUser(cx, User{UserID: at.UserID, DisplayName: dName, Email: token.Email})
-		if photoURL == "" {
+		if photoURL != "" {
 			delayCopyUserPhoto.Call(cx, photoURL, at.UserID)
 		}
-		delayFindFollows.Call(cx, at.UserID, at.Email)
 	}
 }
 
@@ -297,79 +295,6 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 	}
 
 	c.MapTo(at, (*Access)(nil))
-}
-
-// The following code is modified and taken from the GitKit client library.
-// TODO FIXME - I'm turning off Certificate validation for a while
-
-// VerifyToken verifies the JWT is valid and signed by identitytoolkit service
-// and returns the verfied token.
-func VerifyToken(cx appengine.Context, token string) (*gitkit.Token, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("not a JWT: %s", token)
-	}
-	// Check the header to extract the "kid" field.
-	h, err := decodeSegment(parts[0])
-	if err != nil {
-		return nil, err
-	}
-	hh := struct {
-		KeyID string `json:"kid"`
-	}{}
-	if err = json.Unmarshal(h, &hh); err != nil {
-		return nil, err
-	}
-
-	// Check the claim set.
-	c, err := decodeSegment(parts[1])
-	if err != nil {
-		return nil, err
-	}
-	var t struct {
-		Iss        string `json:"iss,omitempty"`
-		Aud        string `json:"aud,omitempty"`
-		Iat        int64  `json:"iat,omitempty"`
-		Exp        int64  `json:"exp,omitempty"`
-		UserID     string `json:"user_id,omitempty"`
-		Email      string `json:"email,omitempty"`
-		Verified   bool   `json:"verified,omitempty"`
-		ProviderID string `json:"providerId,omitempty"`
-	}
-	if err = json.Unmarshal(c, &t); err != nil {
-		return nil, err
-	}
-	if t.Iss == "" || t.Aud == "" || t.Iat == 0 || t.Exp == 0 || t.UserID == "" {
-		return nil, fmt.Errorf("missing required fields: %v", t)
-	}
-	// Check the signature.
-	s, err := decodeSegment(parts[2])
-	if err != nil {
-		return nil, err
-	}
-
-	for _, cert := range publicCerts {
-		err := cert.CheckSignature(x509.SHA256WithRSA, []byte(parts[0]+"."+parts[1]), s)
-		if err == nil {
-			break
-		} else {
-			cx.Errorf("VerifyToken %v %v", t, err)
-		}
-	}
-	// if err != nil {
-	// 	return nil, err
-	// }
-	return &gitkit.Token{
-		Issuer:        t.Iss,
-		Audience:      t.Aud,
-		IssueAt:       time.Unix(t.Iat, 0),
-		ExpireAt:      time.Unix(t.Exp, 0),
-		LocalID:       t.UserID,
-		Email:         t.Email,
-		EmailVerified: t.Verified,
-		ProviderID:    t.ProviderID,
-		TokenString:   token,
-	}, nil
 }
 
 // decodeSegment decodes the Base64 encoding segment of the JWT token.
