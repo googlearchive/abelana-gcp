@@ -71,9 +71,36 @@ func newPool(server, password string) *redisx.Pool {
 }
 
 // iNowFollow is Called when the user wants to follow someone (usually called from delay,
-// called from createUser x3
-func iNowFollow(cx appengine.Context, userID, followerID string) {
-	// TODO: implement
+// called from createUser x3 -- Goal Fixup the timeline
+func iNowFollow(cx appengine.Context, userID, followerID string) error {
+	var err error
+	var count int
+	k := datastore.NewKey(cx, "User", followerID, 0, nil)
+	q := datastore.NewQuery("Photo").Ancestor(k).Order("-Date").Limit(10)
+	var photos []Photo
+	_, err = q.GetAll(cx, &photos)
+	if err != nil {
+		return fmt.Errorf("iNowFollow GetAll %v %v", followerID, err)
+	}
+
+	conn := pool.Get(cx)
+	defer conn.Close()
+
+	// The ideal algorithm would be to merge in date order, but instead, we just add the last 10.
+	for _, p := range photos {
+		count, err = redisx.Int(conn.Do("LPUSH", "TL:"+userID, p.PhotoID))
+		if err != nil {
+			cx.Errorf("iNowFollow: %v", err)
+		}
+	}
+	if err == nil && count > 2000 {
+		for i := 2000; i < count; i++ {
+			if _, err := conn.Do("RPOP", "TL:"+userID); err != nil {
+				cx.Errorf("iNowFollow: RPOP TL:%v %v", userID, err)
+			}
+		}
+	}
+	return nil
 }
 
 // initialPhotos will add photos to the users timeline.
@@ -85,6 +112,7 @@ func initialPhotos(cx appengine.Context, ID string) error {
 	if err != nil {
 		cx.Errorf("initialPhotos %v", err)
 	}
+
 	return nil // don't retry this.
 }
 
@@ -165,6 +193,8 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 		}
 	}
 	var timeline []TLEntry
+	// TimeLineBatchSize is our paging mechanism, we will only return this many images.  The user
+	// can ask for more.
 	for i := 0; i < abelanaConfig().TimelineBatchSize && i+ix < len(list); i++ {
 		photoID := list[ix+i]
 

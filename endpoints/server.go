@@ -312,8 +312,8 @@ func profileForUser(cx appengine.Context, userID, lastDate string) ([]TLEntry, e
 		}
 		q = q.Filter("", lastDate)
 	}
-	// TODO: TimelineBatchSize in here?
-	q = q.Order("-Date").Limit(abelanaConfig().TimelineBatchSize * 3)
+	// TimelineBatchSize guides our paging mechanism.
+	q = q.Order("-Date").Limit(abelanaConfig().TimelineBatchSize)
 	var photos []Photo
 	_, err = q.GetAll(cx, &photos)
 	if err != nil {
@@ -330,6 +330,9 @@ func profileForUser(cx appengine.Context, userID, lastDate string) ([]TLEntry, e
 			Likes:   -1, // TODO: don't return the likes in the profile for users
 			ILike:   false},
 		)
+	}
+	if DEBUG {
+		cx.Infof("profileForUser: %v", tl)
 	}
 	return tl, nil
 }
@@ -376,6 +379,9 @@ func GetFollowing(cx appengine.Context, at Access, p martini.Params, w http.Resp
 		Kind:    "abelana#followerList",
 		Persons: ps,
 	})
+	if DEBUG {
+		cx.Infof("GetFollowing: %v", ps)
+	}
 }
 
 // GetPerson -- find out about someone  : Person
@@ -392,6 +398,9 @@ func GetPerson(cx appengine.Context, at Access, p martini.Params, w http.Respons
 		return
 	}
 	replyJSON(w, &Person{"abelana#follower", u.UserID, u.Email, u.DisplayName})
+	if DEBUG {
+		cx.Infof("GetPerson: %v %v %v", u.UserID, u.Email, u.DisplayName)
+	}
 }
 
 // FollowByID - will tell us about a new possible follower (FrReq) : Status
@@ -515,7 +524,12 @@ func followById(cx appengine.Context, userID, followingID string) error {
 
 // Statistics will tell you about a user
 func Statistics(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	st := &Stats{300, 30}
+	u, err := findUser(cx, at.ID())
+	if err != nil {
+		cx.Errorf("Statistics %v", err)
+		replyJSON(w, &Stats{-1, -1})
+	}
+	st := &Stats{len(u.IFollow), len(u.FollowsMe)}
 	replyJSON(w, st)
 }
 
