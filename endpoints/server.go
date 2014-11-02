@@ -56,6 +56,8 @@ var (
 	delayINowFollow    = delay.Func("iNowFollow", iNowFollow)
 	delayFindFollows   = delay.Func("findFollows", findFollows)
 	delayInitialPhotos = delay.Func("initialPhotos", initialPhotos)
+	delayFollowById    = delay.Func("followById", followById)
+	delayInitialSetup  = delay.Func("initialSetup", initialSetup)
 )
 
 type (
@@ -135,7 +137,7 @@ type (
 		Entries []Comment `json:"entries"`
 	}
 
-	// Stats contains usefull user statistics
+	// Stats contains useful user statistics
 	Stats struct {
 		Following int `json:"following"`
 		Followers int `json:"followers"`
@@ -432,28 +434,35 @@ func Follow(cx appengine.Context, at Access, p martini.Params, w http.ResponseWr
 		return
 	}
 	if len(keys) > 0 {
-		cx.Infof("Follow - Found: (%v) %v %v", len(keys), email, keys[0].StringID())
+		if DEBUG {
+			cx.Infof("Follow - Found: (%v) %v %v", len(keys), email, keys[0].StringID())
+		}
 		err = followById(cx, at.ID(), keys[0].StringID())
 		if err != nil {
 			cx.Errorf("Follow: followByID: %v", err)
 		}
 	} else {
-		cx.Infof("Follow - NOT FOUND %v", email)
+		if DEBUG {
+			cx.Infof("Follow - NOT FOUND %v", email)
+		}
 		err = datastore.RunInTransaction(cx, func(cx appengine.Context) error {
 			user, err := findUser(cx, at.ID())
 			if err != nil {
 				return err
 			}
-			iwant := len(user.IWantToFollow)
-			if iwant == cap(user.IWantToFollow) {
-				newSlice := make([]string, iwant, iwant+1)
-				copy(newSlice, user.IWantToFollow)
-				user.IWantToFollow = newSlice[0 : iwant+1]
+			if uniqueP(user.IWantToFollow, email) {
+				iwant := len(user.IWantToFollow)
+				if iwant == cap(user.IWantToFollow) {
+					newSlice := make([]string, iwant, iwant+1)
+					copy(newSlice, user.IWantToFollow)
+					user.IWantToFollow = newSlice[0 : iwant+1]
+				}
+				kUser := datastore.NewKey(cx, "User", at.ID(), 0, nil)
+				user.IWantToFollow[iwant] = email
+				_, err = datastore.Put(cx, kUser, user)
+				return err
 			}
-			kUser := datastore.NewKey(cx, "User", at.ID(), 0, nil)
-			user.IWantToFollow[iwant] = email
-			_, err = datastore.Put(cx, kUser, user)
-			return err
+			return nil
 		}, nil)
 		if err != nil {
 			cx.Errorf("Follow: %v %v", eMail, err)
@@ -485,32 +494,36 @@ func followById(cx appengine.Context, userID, followingID string) error {
 		if err != nil {
 			return fmt.Errorf("getFollowed %v %v %v", followingID, userID, err)
 		}
-		cx.Infof("followByID: (%v %v)%v %v", len(user.IFollow), cap(user.IFollow), userID, followingID)
+		if DEBUG {
+			cx.Infof("followByID: (%v %v)%v %v", len(user.IFollow), cap(user.IFollow), userID, followingID)
+		}
 		sl := user.IFollow
-		if len(sl) == cap(sl) {
-			newSl := make([]string, len(sl), len(sl)+1)
-			copy(newSl, sl)
-			sl = newSl
+		if uniqueP(sl, followingID) { // Only add if Unique
+			if len(sl) == cap(sl) {
+				newSl := make([]string, len(sl), len(sl)+1)
+				copy(newSl, sl)
+				sl = newSl
+			}
+			user.IFollow = sl[0 : len(sl)+1]
+			user.IFollow[len(sl)] = followingID
+			_, err = datastore.Put(cx, kUser, user)
+			if err != nil {
+				return fmt.Errorf("updateMe %v %v", userID, err)
+			}
 		}
-		user.IFollow = sl[0 : len(sl)+1]
-		user.IFollow[len(sl)] = followingID
-
 		sl = followed.FollowsMe
-		if len(sl) == cap(sl) {
-			newSl := make([]string, len(sl), len(sl)+1)
-			copy(newSl, sl)
-			sl = newSl
-		}
-		followed.FollowsMe = sl[0 : len(sl)+1]
-		followed.FollowsMe[len(sl)] = userID
-
-		_, err = datastore.Put(cx, kUser, user)
-		if err != nil {
-			return fmt.Errorf("updateMe %v %v", userID, err)
-		}
-		_, err = datastore.Put(cx, kFollowed, followed)
-		if err != nil {
-			return fmt.Errorf("updateFollowed %v %v", followingID, err)
+		if uniqueP(sl, userID) {
+			if len(sl) == cap(sl) {
+				newSl := make([]string, len(sl), len(sl)+1)
+				copy(newSl, sl)
+				sl = newSl
+			}
+			followed.FollowsMe = sl[0 : len(sl)+1]
+			followed.FollowsMe[len(sl)] = userID
+			_, err = datastore.Put(cx, kFollowed, followed)
+			if err != nil {
+				return fmt.Errorf("updateFollowed %v %v", followingID, err)
+			}
 		}
 		return nil
 	}, to)
@@ -520,6 +533,16 @@ func followById(cx appengine.Context, userID, followingID string) error {
 	}
 	delayINowFollow.Call(cx, userID, followingID)
 	return nil
+}
+
+// uniqueP helps us find and elimiate duplicates
+func uniqueP(list []string, item string) bool {
+	for _, itm := range list {
+		if itm == item {
+			return false
+		}
+	}
+	return true
 }
 
 // Statistics will tell you about a user

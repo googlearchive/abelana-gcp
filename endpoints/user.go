@@ -15,6 +15,7 @@
 package abelana
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -47,13 +48,24 @@ func createUser(cx appengine.Context, user User) error {
 		cx.Errorf(" CreateUser %v %v", err, user.UserID)
 		return err
 	}
-	addUser(cx, user.UserID, user.DisplayName)
-	iNowFollow(cx, user.UserID, "05245673354473659840")
-	iNowFollow(cx, user.UserID, "05271790258892790624")
-	iNowFollow(cx, user.UserID, "12730648828453578083")
+	addUser(cx, user.UserID, user.DisplayName) // Tell Redis
+	delayInitialSetup.Call(cx, user.UserID, user.Email)
+	return nil
+}
 
-	delayInitialPhotos.Call(cx, user.UserID)
-	delayFindFollows.Call(cx, user.UserID, user.Email)
+// initialSetup will add the initial things in a somewhat reasonable way.
+func initialSetup(cx appengine.Context, ID, email string) error {
+	if err := followById(cx, ID, "05245673354473659840"); err != nil {
+		return fmt.Errorf("initialSetup: %v", err)
+	}
+	if err := followById(cx, ID, "05271790258892790624"); err != nil {
+		cx.Errorf("initialSetup2: %v", err)
+	}
+	if err := followById(cx, ID, "12730648828453578083"); err != nil {
+		cx.Errorf("initialSetup3: %v", err)
+	}
+	delayInitialPhotos.Call(cx, ID)
+	delayFindFollows.Call(cx, ID, email)
 	return nil
 }
 
