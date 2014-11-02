@@ -48,7 +48,6 @@ var (
 	}
 )
 
-
 func newPool(server, password string) *redisx.Pool {
 	return &redisx.Pool{
 		MaxIdle:     3,
@@ -71,58 +70,77 @@ func newPool(server, password string) *redisx.Pool {
 	}
 }
 
-// iNowFollow is Called when the user wants to follow someone
+// iNowFollow is Called when the user wants to follow someone (usually called from delay,
+// called from createUser x3
 func iNowFollow(cx appengine.Context, userID, followerID string) {
 	// TODO: implement
 }
 
+// initialPhotos will add photos to the users timeline.
+func initialPhotos(cx appengine.Context, ID string) error {
+	conn := pool.Get(cx)
+	defer conn.Close()
+
+	_, err := conn.Do("LPUSH", "TL:"+ID, "0001.0001")
+	if err != nil {
+		cx.Errorf("initialPhotos %v", err)
+	}
+	return nil // don't retry this.
+}
+
 // addPhoto is called to add a photo. This is allways called from a Delay
 func addPhoto(cx appengine.Context, photoID string) error {
+	var u *User
+	var err error
+
 	s := strings.Split(photoID, ".")
 
-	// s[0] = userid, s[1] = random photo
+	// s[0] = userid, s[1] = random photo id
 	userID := s[0]
-	u, err := findUser(cx, userID)
-	if err != nil {
-		return fmt.Errorf("addPhoto: unable to find user %v %v", userID, err)
-	}
-
 	p := &Photo{photoID, time.Now().UTC().Unix()}
+	if userID != "0001" {
+		u, err = findUser(cx, userID)
+		if err != nil {
+			return fmt.Errorf("addPhoto: unable to find user %v %v", userID, err)
+		}
+		k := datastore.NewKey(cx, "Photo", photoID, 0,
+			datastore.NewKey(cx, "User", userID, 0, nil))
+		if _, err := datastore.Put(cx, k, p); err != nil {
+			return fmt.Errorf("addPhoto: put photo in datastore %v", err)
+		}
+	}
 
 	conn := pool.Get(cx)
 	defer conn.Close()
 
 	set, err := redisx.Int(conn.Do("HSETNX", "IM:"+photoID, "date", p.Date)) // Set Date
 	if (err != nil && err != redisx.ErrNil) || set == 0 {
-		return fmt.Errorf("addPhoto: duplicate %v %v", err, set)
+		cx.Infof("addPhoto: duplicate %v %v", err, set)
+		return nil // returning the error here makes TaskQ call us a lot.
 	}
-
 	// TODO: Consider if these should be done in batches of 100 or so.
 
-	// Add to each follower's list
-	for _, f := range u.FollowsMe {
-		conn.Send("LPUSH", "TL:"+f, photoID)
-	}
-	conn.Flush()
-
-	// Check the result and adjust list if nescessary.
-	for _, f := range u.FollowsMe {
-		v, err := redisx.Int(conn.Receive())
-		if err != nil && err != redisx.ErrNil {
-			cx.Errorf("addPhoto: get TL:%v %v", f, err)
-			continue
+	if userID != "0001" {
+		list := append(u.FollowsMe, userID) // Make sure I can see the photo...
+		// Add to each follower's list
+		for _, f := range list {
+			conn.Send("LPUSH", "TL:"+f, photoID)
 		}
-		if v > 2000 {
-			if _, err := conn.Do("RPOP", "TL:"+f); err != nil {
-				cx.Errorf("addPhoto: RPOP TL:%v %v", f, err)
+		conn.Flush()
+
+		// Check the result and adjust list if nescessary.
+		for _, f := range list {
+			v, err := redisx.Int(conn.Receive())
+			if err != nil && err != redisx.ErrNil {
+				cx.Errorf("addPhoto: get TL:%v %v", f, err)
+				continue
+			}
+			if v > 2000 {
+				if _, err := conn.Do("RPOP", "TL:"+f); err != nil {
+					cx.Errorf("addPhoto: RPOP TL:%v %v", f, err)
+				}
 			}
 		}
-	}
-	k := datastore.NewKey(cx, "Photo", photoID, 0,
-		datastore.NewKey(cx, "User", userID, 0, nil),
-	)
-	if _, err := datastore.Put(cx, k, p); err != nil {
-		return fmt.Errorf("addPhoto: put photo in datastore %v", err)
 	}
 	return nil
 }
@@ -163,14 +181,19 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 		likes, err := redisx.Int(conn.Do("HLEN", "IM:"+photoID))
 		if err != nil && err != redisx.ErrNil {
 			cx.Errorf("GetTimeLine HLEN %v", err)
+			likes = 0
 		}
 		s := strings.Split(photoID, ".")
 		dn, err := redisx.String(conn.Do("HGET", "HT:"+s[0], "dn"))
 		if err != nil && err != redisx.ErrNil {
-			cx.Errorf("GetTimeLine HLEN %v", err)
+			cx.Errorf("GetTimeLine HGET %v", err)
+			dn = ""
 		}
 		dt, err := strconv.ParseInt(v[0], 10, 64)
-		te := TLEntry{dt, s[0], dn, photoID, likes - 1, v[1] == "1"}
+		if err != nil {
+			dt = 1414883602 // Nov 1, 2014
+		}
+		te := TLEntry{dt, s[0], dn, photoID, likes, v[1] == "1"}
 		timeline = append(timeline, te)
 	}
 	return timeline, nil

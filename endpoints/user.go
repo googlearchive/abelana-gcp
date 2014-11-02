@@ -41,12 +41,19 @@ func findUser(cx appengine.Context, id string) (*User, error) {
 // createUser will create the initial datastore entry for the user
 func createUser(cx appengine.Context, user User) error {
 	cx.Infof("CreateUser: %v", user)
+	user.IFollow = []string{"05245673354473659840", "05271790258892790624", "12730648828453578083"}
 	_, err := datastore.Put(cx, datastore.NewKey(cx, "User", user.UserID, 0, nil), &user)
 	if err != nil {
 		cx.Errorf(" CreateUser %v %v", err, user.UserID)
 		return err
 	}
 	addUser(cx, user.UserID, user.DisplayName)
+	iNowFollow(cx, user.UserID, "05245673354473659840")
+	iNowFollow(cx, user.UserID, "05271790258892790624")
+	iNowFollow(cx, user.UserID, "12730648828453578083")
+
+	delayInitialPhotos.Call(cx, user.UserID)
+	delayFindFollows.Call(cx, user.UserID, user.Email)
 	return nil
 }
 
@@ -54,7 +61,9 @@ func createUser(cx appengine.Context, user User) error {
 func copyUserPhoto(cx appengine.Context, url string, userID string) error {
 	// We want a larger photo
 	url = strings.Replace(url, "sz=50", "sz=2048", 1)
-
+	if DEBUG {
+		cx.Infof("copyUserPhoto: %v %v", userID, url)
+	}
 	client := urlfetch.Client(cx)
 	resp, err := client.Get(url)
 	defer resp.Body.Close()
