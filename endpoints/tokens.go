@@ -127,8 +127,7 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 		}
 	}
 
-	at := &AccToken{token.LocalID, string(serverKey), time.Now().UTC().Unix(),
-		time.Now().UTC().Add(120 * 24 * time.Hour).Unix(), token.Email}
+	at := &AccToken{token.LocalID, time.Now().UTC().Unix(), time.Now().UTC().Add(120 * 24 * time.Hour).Unix()}
 
 	parts := make([]string, 3)
 
@@ -203,10 +202,8 @@ func GetSecretKey(w http.ResponseWriter) {
 // go away when Idenitty Toolkit supports access tokens.
 type AccToken struct {
 	UserID string
-	HalfPW string // TODO FIXME -- make this go away
 	Iat    int64
 	Exp    int64
-	Email  string // TODO FIXME REMOVE
 }
 
 // Access lets us know if we need another
@@ -218,11 +215,6 @@ type Access interface {
 // Expired tells us if we have a valid AuthToken
 func (at *AccToken) Expired() bool {
 	return time.Now().UTC().After(time.Unix(at.Exp, 0))
-}
-
-// Mail access func for Email
-func (at *AccToken) Mail() string {
-	return at.Email
 }
 
 // ID accessor func for UserID
@@ -237,8 +229,8 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 	haveCerts(cx)
 	// FIXME -- TEMPORARY BACKDOOR
 	if abelanaConfig().EnableBackdoor && strings.HasPrefix(p["atok"], "LES") {
-		at = &AccToken{"00001", string(serverKey), time.Now().UTC().Unix(),
-			time.Now().UTC().Add(120 * 24 * time.Hour).Unix(), "lesv@abelana-app.com"}
+		at = &AccToken{"00001", time.Now().UTC().Unix(),
+			time.Now().UTC().Add(120 * 24 * time.Hour).Unix()}
 	} else {
 		part := strings.Split(p["atok"], ".")
 		if len(part) != 3 {
@@ -272,7 +264,7 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 			http.Error(w, "Invalid Token", http.StatusUnauthorized)
 			return
 		}
-		if at.UserID == "" || at.Iat == 0 || at.Exp == 0 || at.Email == "" {
+		if at.UserID == "" || at.Iat == 0 || at.Exp == 0 {
 			http.Error(w, "Invalid Token", http.StatusUnauthorized)
 			return
 		}

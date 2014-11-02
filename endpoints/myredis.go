@@ -197,7 +197,9 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 	// can ask for more.
 	for i := 0; i < abelanaConfig().TimelineBatchSize && i+ix < len(list); i++ {
 		photoID := list[ix+i]
-
+		if isDup(timeline, photoID) {
+			continue
+		}
 		v, err := redisx.Strings(conn.Do("HMGET", "IM:"+photoID, "date", userID, "flag"))
 		if err != nil && err != redisx.ErrNil {
 			cx.Errorf("GetTimeLine HMGET %v", err)
@@ -227,6 +229,15 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 		timeline = append(timeline, te)
 	}
 	return timeline, nil
+}
+
+func isDup(tl []TLEntry, id string) bool {
+	for _, itm := range tl {
+		if itm.PhotoID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // addUser adds the user to redis
