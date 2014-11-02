@@ -30,6 +30,8 @@ const (
 )
 
 var (
+	account = flag.String("account", "service-account.json", "path to service account JSON file")
+
 	// map with the suffixes and sizes to generate
 	sizes = map[string]struct{ x, y uint }{
 		"a": {480, 800},
@@ -43,20 +45,28 @@ var (
 		"i": {750, 750},
 	}
 
-	ctx context.Context
+	ctx    context.Context
+	client *http.Client
 )
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
 
-	transport := google.NewComputeEngineConfig("").NewTransport()
-	ctx = cloud.NewContext(projectID, &http.Client{Transport: transport})
+	ctx = cloud.NewContext(projectID, &http.Client{
+		Transport: google.NewComputeEngineConfig("").NewTransport(),
+	})
+
+	config, err := google.NewServiceAccountJSONConfig(*account, "https://www.googleapis.com/auth/userinfo.email")
+	if err != nil {
+		log.Fatal(err)
+	}
+	client = &http.Client{Transport: config.NewTransport()}
 
 	http.HandleFunc("/healthcheck", func(http.ResponseWriter, *http.Request) {})
 	http.HandleFunc("/", notificationHandler)
 	log.Println("server about to start listening on", listenAddress)
-	err := http.ListenAndServe(listenAddress, nil)
+	err = http.ListenAndServe(listenAddress, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -112,6 +122,7 @@ func processImage(bucket, name string) error {
 	if err := wand.SetImageFormat("WEBP"); err != nil {
 		return fmt.Errorf("set WEBP format: %v", err)
 	}
+	wand.SetGravity(imagick.GRAVITY_CENTER)
 
 	errc := make(chan error, len(sizes))
 	for suffix, size := range sizes {
@@ -119,6 +130,11 @@ func processImage(bucket, name string) error {
 			errc <- func() error {
 				defer wand.Destroy()
 
+				/* Fix later, crop the images to be square.
+				if err := wand.CropImage(x, y, 0, 0); err != nil {
+					return fmt.Errorf("crop: %v", err)
+				}
+				*/
 				if err := wand.AdaptiveResizeImage(size.x, size.y); err != nil {
 					return fmt.Errorf("resize: %v", err)
 				}
@@ -168,13 +184,15 @@ func authorized(token string) (ok bool, err error) {
 }
 
 func notifyDone(name, token string) (err error) {
+	// drop the file extension
+	name = name[:strings.LastIndex(name, ".")]
 	req, err := http.NewRequest("POST", pushURL+name, &bytes.Buffer{})
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", token)
 
-	res, err := http.DefaultClient.Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("photo push: %v", err)
 	}
