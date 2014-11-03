@@ -214,6 +214,8 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 		if err != nil && err != redisx.ErrNil {
 			cx.Errorf("GetTimeLine HLEN %v", err)
 			likes = 0
+		} else {
+			likes = likes - 1 // offset as there is a Date as well
 		}
 		s := strings.Split(photoID, ".")
 		dn, err := redisx.String(conn.Do("HGET", "HT:"+s[0], "dn"))
