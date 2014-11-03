@@ -473,8 +473,19 @@ func Follow(cx appengine.Context, at Access, p martini.Params, w http.ResponseWr
 
 // findFollows will do the major explosion for the social network, it is called by Delay and it will
 // fire off many delay's possibly for a popular person joining the network.
-func findFollows(cx appengine.Context, userID, email string) {
+func findFollows(cx appengine.Context, userID, email string) error {
+	var users []User
+	var keys []*datastore.Key
+	var err error
 
+	q := datastore.NewQuery("User").Filter("IWantToFollow =", email).KeysOnly()
+	if keys, err = q.GetAll(cx, &users); err != nil {
+		return fmt.Errorf("findFollows: GetAll %v", err)
+	}
+	for _, key := range keys {
+		delayFollowById.Call(cx, key.StringID(), userID)
+	}
+	return nil
 }
 
 // followById makes following a user easy once we know who they are
@@ -665,7 +676,6 @@ func Flag(cx appengine.Context, at Access, p martini.Params, w http.ResponseWrit
 // PostPhoto lets us know that we have a photo, we then tell both DataStore and Redis
 // What is sent is just the id, either uuuuu.rrrrr or uuuuu where u=userID, and rrrrr is random photoID
 func PostPhoto(cx appengine.Context, p martini.Params, w http.ResponseWriter, rq *http.Request) string {
-	cx.Infof("PostPhoto %v", p["superid"])
 	otok := rq.Header.Get("Authorization")
 	if !appengine.IsDevAppServer() {
 		ok, err := authorized(cx, otok)
