@@ -22,15 +22,15 @@ be supporting this project with videos and additional material.
 How do I, as a developer, bring this project up as my own Google Cloud Platform project?
 
 1. Grab the project from GitHub
-  * Following the Go guidelines, the project belongs in your GOPATH (ours is ~/go)
-  * The files go into $GOPATH/src/github.com/GoogleCloudPlatform/abelana-gcp
+  * Following the Go guidelines, the project belongs in your GOPATH (ours is ~/go).
+  * The files go into $GOPATH/src/github.com/GoogleCloudPlatform/abelana-gcp.
   * There are 3 Appe Engine applications:
-    * **default** - the main website, supports identity-toolkit sign-on. (We took their sample)
+    * **default** - the main website, supports identity-toolkit sign-on. (We took their sample).
     * **endpoints** - Where most of the action occurs.
     * **notice** - Takes [Object Change Notifications](https://cloud.google.com/storage/docs/object-change-notification) from Google Cloud Storage and connects with the Image magick for resizing and re-encoding. Then uploads to GCS, and notifies endpoints.
   * There is also a third party directory of code we modified.
   * The GCE app
-    * **imagemagick** - the docker component for hosting imagemagick
+    * **imagemagick** - the docker component for hosting imagemagick.
   * [Redis](http://redis.io/) -- Not much there, you should modify the config files for your instance yourself.
 
 1. Create a Cloud Project
@@ -39,13 +39,13 @@ How do I, as a developer, bring this project up as my own Google Cloud Platform 
     * Create the project.
 
 1. Click on **Permissions**.
-  * Take note of the App Engine Service Account, you'll need that later.
+  * Take note of the App Engine Service Account. You'll need this later.
 
-1. Click on **Credentials**. You are going to need the following:
+1. Click on **Credentials**. You'll need the following:
   * Client ID for Android application
     * Please see [this page](https://developers.google.com/+/mobile/android/getting-started#step_1_enable_the_google_api), you
     only need step 1 #5.
-  * Client ID for web application
+  * Client ID for web application.
     * redirect URI's should include:
         * https://localhost/callback
         * https//<your-appengine-project>.appspot.com/gitkit
@@ -54,8 +54,8 @@ How do I, as a developer, bring this project up as my own Google Cloud Platform 
     * Generate and download a new P12 key.
 
   * Public API Access
-    * Key for browser applications
-    * Key for server applications
+    * Key for browser applications.
+    * Key for server applications.
 
 1. Click on **APIs**. You will need the following:
   * Google Cloud Storage
@@ -69,7 +69,7 @@ How do I, as a developer, bring this project up as my own Google Cloud Platform 
   * Identity Toolkit API
 
 1. Details for the Android Client
-  * How we create create the secretKey that resides on Android, used to access Cloud Storage
+  * How we create create the secretKey that resides on Android, used to access Cloud Storage:
     ```java
     static SecureRandom sr = new SecureRandom();
 
@@ -128,11 +128,11 @@ e.g.
 }
    ```
 
-1. Redis
-  * Use one click install, to start, you only need 1 instance
+1. [Redis](http://redis.io/):
+  * Use one click install, to start, you only need 1 instance.
   * Use **gcloud instance ssh ...** to connect with your instance.
-  * Edit /etc/redis/redis.config
-  * add `requirepass "<YOUR REDIS PASSWORD>"`
+  * Edit /etc/redis/redis.config.
+  * Add `requirepass "<YOUR REDIS PASSWORD>"`.
 
 1. Image Magick
 
@@ -140,13 +140,13 @@ e.g.
 
 1. Can I see the project working before I change anything?
 
-1. How we setup Redis
-  * Use one click install to get us 3 redis instances (master - 2 slaves)
-  * For each instance, set it to restart automatically
-  * get the Internal & External IP address for the Master
+1. How we set up Redis:
+  * Use one click install to get us 3 redis instances (master - 2 slaves).
+  * For each instance, set it to restart automatically.
+  * get the Internal & External IP address for the Master.
   * Add a backup cron job to backup the db every 15 minutes.
-  * (Optional) Add firewall entries to all me to access from my development system
-  * Add IP's to app config files
+  * (Optional) Add firewall entries to all me to access from my development system.
+  * Add IP's to app config files.
 
 ## Testing
 
@@ -159,9 +159,9 @@ How do I run the project's automated tests?
 
 ## Deploying
 
-### How to setup the deployment environment
+### How to set up the deployment environment
 
-* Addons, packages, or other dependencies required for deployment.
+* Add-ons, packages, or other dependencies required for deployment.
 * Required environment variables or credentials not included in git.
 * Monitoring services and logging.
 
