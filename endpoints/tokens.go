@@ -282,6 +282,8 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 		}
 		if err != nil {
 			cx.Errorf("CheckSignature %v %v", at.UserID, err)
+			publicCerts = nil // wipe out the certificates
+			haveCerts(cx)     // reload them.
 			http.Error(w, "Invalid Token", http.StatusUnauthorized)
 		}
 	}
