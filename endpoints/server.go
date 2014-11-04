@@ -209,38 +209,6 @@ func replyOk(w http.ResponseWriter) {
 
 // GetTimeLine - get the timeline for the user (token) : TlResp
 func GetTimeLine(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	if abelanaConfig().EnableStubs {
-		t := time.Now().Unix()
-		if p["lastid"] != "0" {
-			replyJSON(w, Timeline{"abelana#timeline", []TLEntry{
-				TLEntry{t - 200, "00001", "Les", "0001", 1, false},
-				TLEntry{t - 1000, "00001", "Les", "0002", 99, false},
-				TLEntry{t - 2500, "00001", "Les", "0003", 0, false},
-				TLEntry{t - 6040, "00001", "Les", "0004", 3, true},
-				TLEntry{t - 7500, "00001", "Les", "0005", 1, true},
-				TLEntry{t - 9300, "00001", "Les", "0006", 99, false},
-				TLEntry{t - 10200, "00001", "Les", "0007", 0, false},
-				TLEntry{t - 47003, "00001", "Les", "0008", 3, false},
-				TLEntry{t - 53002, "00001", "Les", "0009", 1, true},
-				TLEntry{t - 54323, "00001", "Les", "0010", 99, false},
-				TLEntry{t - 56112, "00001", "Les", "0011", 0, false},
-				TLEntry{t - 58243, "00001", "Les", "0004", 3, false},
-			}})
-			return
-		}
-		replyJSON(w, Timeline{"abelana#timeline", []TLEntry{
-			TLEntry{t - 95323, "00002", "Zafir", "0002", 99, false},
-			TLEntry{t - 96734, "00002", "Zafir", "0003", 0, false},
-			TLEntry{t - 98033, "00002", "Zafir", "0004", 3, false},
-			TLEntry{t - 99334, "00002", "Zafir", "0005", 1, false},
-			TLEntry{t - 99993, "00002", "Zafir", "0006", 99, false},
-			TLEntry{t - 102304, "00002", "Zafir", "0007", 0, false},
-			TLEntry{t - 102750, "00002", "Zafir", "0008", 3, false},
-			TLEntry{t - 104333, "00002", "Zafir", "0009", 1, false},
-		}})
-		return
-	}
-
 	tl, err := getTimeline(cx, at.ID(), p["lastid"])
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -251,19 +219,6 @@ func GetTimeLine(cx appengine.Context, at Access, p martini.Params, w http.Respo
 
 // GetMyProfile - Get my entries only (token) : TlResp
 func GetMyProfile(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	if abelanaConfig().EnableStubs {
-		t := time.Now().Unix()
-		replyJSON(w, Timeline{"abelana#timeline", []TLEntry{
-			TLEntry{t - 99993, "00001", "Les", "0006", 99, true},
-			TLEntry{t - 102304, "00001", "Les", "0007", 0, false},
-			TLEntry{t - 102750, "00001", "Les", "0008", 3, false},
-			TLEntry{t - 104333, "00001", "Les", "0009", 1, false},
-			TLEntry{t - 105323, "00001", "Les", "0010", 9, false},
-			TLEntry{t - 107323, "00001", "Les", "0011", 0, false},
-			TLEntry{t - 173404, "00001", "Les", "0005", 21, false},
-		}})
-		return
-	}
 	tl, err := profileForUser(cx, at.ID(), p["lastdate"])
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -274,20 +229,6 @@ func GetMyProfile(cx appengine.Context, at Access, p martini.Params, w http.Resp
 
 // FProfile - Get a specific followers entries only (TlfReq) : TlResp
 func FProfile(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	if abelanaConfig().EnableStubs {
-		t := time.Now().Unix()
-		replyJSON(w, &Timeline{"abelana#timeline", []TLEntry{
-			TLEntry{t - 80500, "00001", "Les", "0002", 99, true},
-			TLEntry{t - 81200, "00001", "Les", "0003", 0, false},
-			TLEntry{t - 89302, "00001", "Les", "0005", 3, true},
-			TLEntry{t - 91200, "00001", "Les", "0007", 1, false},
-			TLEntry{t - 92343, "00001", "Les", "0006", 99, true},
-			TLEntry{t - 99334, "00001", "Les", "0005", 1, false},
-			TLEntry{t - 99993, "00001", "Les", "0006", 99, false},
-		}})
-		return
-	}
-
 	tl, err := profileForUser(cx, p["personid"], p["lastdate"])
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -354,16 +295,6 @@ func Import(cx appengine.Context, at Access, p martini.Params, w http.ResponseWr
 
 // GetFollowing - A list of those I follow (AToken) :
 func GetFollowing(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	if abelanaConfig().EnableStubs {
-		replyJSON(w, Persons{
-			Kind: "abelana#followerList",
-			Persons: []Person{
-				{"abelana#follower", "00001", "", "Les"},
-				{"abelana#follower", "12730648828453578083", "", "Zafir"},
-			},
-		})
-		return
-	}
 	var u User
 	err := datastore.Get(cx, datastore.NewKey(cx, "User", at.ID(), 0, nil), &u)
 	if err != nil {
@@ -508,29 +439,17 @@ func followById(cx appengine.Context, userID, followingID string) error {
 		if DEBUG {
 			cx.Infof("followByID: (%v %v)%v %v", len(user.IFollow), cap(user.IFollow), userID, followingID)
 		}
-		sl := user.IFollow
-		if uniqueP(sl, followingID) { // Only add if Unique
-			if len(sl) == cap(sl) {
-				newSl := make([]string, len(sl), len(sl)+1)
-				copy(newSl, sl)
-				sl = newSl
-			}
-			user.IFollow = sl[0 : len(sl)+1]
-			user.IFollow[len(sl)] = followingID
+
+		if uniqueP(user.IFollow, followingID) { // Only add if Unique
+			user.IFollow = append(user.IFollow, followingID)
 			_, err = datastore.Put(cx, kUser, user)
 			if err != nil {
 				return fmt.Errorf("updateMe %v %v", userID, err)
 			}
 		}
-		sl = followed.FollowsMe
-		if uniqueP(sl, userID) {
-			if len(sl) == cap(sl) {
-				newSl := make([]string, len(sl), len(sl)+1)
-				copy(newSl, sl)
-				sl = newSl
-			}
-			followed.FollowsMe = sl[0 : len(sl)+1]
-			followed.FollowsMe[len(sl)] = userID
+
+		if uniqueP(followed.FollowsMe, userID) {
+			followed.FollowsMe = append(followed.FollowsMe, userID)
 			_, err = datastore.Put(cx, kFollowed, followed)
 			if err != nil {
 				return fmt.Errorf("updateFollowed %v %v", followingID, err)
