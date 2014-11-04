@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset='utf-8'>
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <link href='https://fonts.googleapis.com/css?family=Chivo:900' rel='stylesheet' type='text/css'>
+    <link rel="stylesheet" type="text/css" href="stylesheets/stylesheet.css" media="screen">
+    <link rel="stylesheet" type="text/css" href="stylesheets/pygment_trac.css" media="screen">
+    <link rel="stylesheet" type="text/css" href="stylesheets/print.css" media="print">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <title>Abelana-gcp by GoogleCloudPlatform</title>
+  </head>
+
+  <body>
+    <div id="container">
+      <div class="inner">
+
+        <header>
+          <h1>Abelana-gcp</h1>
+          <h2>Abelana (means &quot;Share&quot; in Zulu) is a project that allows users to take photos and share them with their friends. </h2>
+        </header>
+
+        <section id="downloads" class="clearfix">
+          <a href="https://github.com/GoogleCloudPlatform/abelana-gcp/zipball/master" id="download-zip" class="button"><span>Download .zip</span></a>
+          <a href="https://github.com/GoogleCloudPlatform/abelana-gcp/tarball/master" id="download-tar-gz" class="button"><span>Download .tar.gz</span></a>
+          <a href="https://github.com/GoogleCloudPlatform/abelana-gcp" id="view-on-github" class="button"><span>View on GitHub</span></a>
+        </section>
+
+        <hr>
+
+        <section id="main_content">
+          <h1>
+<a id="cloud-abelana-go" class="anchor" href="#cloud-abelana-go" aria-hidden="true"><span class="octicon octicon-link"></span></a>Cloud-Abelana-Go</h1>
+
+<p><img src="https://abelana-gcp.github.com/images/0001.0001.png" alt="Abelana">
+<img src="https://abelana-gcp.github.com/images/image05.png" alt="logo"></p>
+
+<p><img src="https://abelana-gcp.github.com/images/architecture.png" alt="Architecture"></p>
+
+<p>Abelana (means "Share" in Zulu) is a project that allows users to take photos and share them with
+their friends. This project is for the <a href="https://cloud.google.com/">Google Cloud Platform</a>.</p>
+
+<p>The Cloud apps were written by Les Vogel and Francesc Campoy Flores. For questions and comments,
+please join the <a href="https://groups.google.com/forum/#!forum/abelana-app">Google Group</a>.</p>
+
+<p>Disclaimer: This application is for educational purposes only and is not a Google product or service.</p>
+
+<h1>
+<a id="this-is-a-work-in-progress----it-is-incomplete----please-be-patient" class="anchor" href="#this-is-a-work-in-progress----it-is-incomplete----please-be-patient" aria-hidden="true"><span class="octicon octicon-link"></span></a>This is a work in progress -- It is incomplete -- Please be patient!</h1>
+
+<p>The goal of this project is to help you learn how to create your applications in the cloud. We will
+be supporting this project with videos and additional material.</p>
+
+<h2>
+<a id="project-setup-installation-and-configuration-not-yet-enough-to-get-it-running" class="anchor" href="#project-setup-installation-and-configuration-not-yet-enough-to-get-it-running" aria-hidden="true"><span class="octicon octicon-link"></span></a>Project setup, installation, and configuration (Not yet enough to get it running)</h2>
+
+<p>How do I, as a developer, bring this project up as my own Google Cloud Platform project?</p>
+
+<ol>
+<li>
+<p>Grab the project from GitHub</p>
+
+<ul>
+<li>Following the Go guidelines, the project belongs in your GOPATH (ours is ~/go).</li>
+<li>The files go into $GOPATH/src/github.com/GoogleCloudPlatform/abelana-gcp.</li>
+<li>There are 3 Appe Engine applications:
+
+<ul>
+<li>
+<strong>default</strong> - the main website, supports identity-toolkit sign-on. (We took their sample).</li>
+<li>
+<strong>endpoints</strong> - Where most of the action occurs.</li>
+<li>
+<strong>notice</strong> - Takes <a href="https://cloud.google.com/storage/docs/object-change-notification">Object Change Notifications</a> from Google Cloud Storage and connects with the Image magick for resizing and re-encoding. Then uploads to GCS, and notifies endpoints.</li>
+</ul>
+</li>
+<li>There is also a third party directory of code we modified.</li>
+<li>The GCE app
+
+<ul>
+<li>
+<strong>imagemagick</strong> - the docker component for hosting imagemagick.</li>
+</ul>
+</li>
+<li>
+<a href="http://redis.io/">Redis</a> -- Not much there, you should modify the config files for your instance yourself.</li>
+</ul>
+</li>
+<li>
+<p>Create a Cloud Project</p>
+
+<ul>
+<li>Using the <a href="https://console.developers.google.com/project">Developer Console</a>:
+
+<ul>
+<li>Set up billing.</li>
+<li>Create the project.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p>Click on <strong>Permissions</strong>.</p>
+
+<ul>
+<li>Take note of the App Engine Service Account. You'll need this later.</li>
+</ul>
+</li>
+<li>
+<p>Click on <strong>Credentials</strong>. You'll need the following:</p>
+
+<ul>
+<li>Client ID for Android application
+
+<ul>
+<li>Please see <a href="https://developers.google.com/+/mobile/android/getting-started#step_1_enable_the_google_api">this page</a>, you
+only need step 1 #5.</li>
+</ul>
+</li>
+<li>
+<p>Client ID for web application.</p>
+
+<ul>
+<li>redirect URI's should include:
+
+<ul>
+<li>https://localhost/callback</li>
+<li>https//.appspot.com/gitkit</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p>Service Account</p>
+
+<ul>
+<li>Generate and download a new P12 key.</li>
+</ul>
+</li>
+<li>
+<p>Public API Access</p>
+
+<ul>
+<li>Key for browser applications.</li>
+<li>Key for server applications.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p>Click on <strong>APIs</strong>. You will need the following:</p>
+
+<ul>
+<li>Google Cloud Storage</li>
+<li>Google Cloud Storage JSON API</li>
+<li>Google Compute Engine</li>
+<li>Google Compute Engine Autoscaler API</li>
+<li>Google Compute Engine Instance Group Manager API</li>
+<li>Google Compute Engine Instance Group Updater API</li>
+<li>Google Compute Engine Instance Groups API</li>
+<li>Google+ API</li>
+<li>Identity Toolkit API</li>
+</ul>
+</li>
+<li>
+<p>Details for the Android Client</p>
+
+<ul>
+<li>
+<p>How we create create the secretKey that resides on Android, used to access Cloud Storage:</p>
+
+<div class="highlight highlight-java"><pre><span class="kd">static</span> <span class="n">SecureRandom</span> <span class="n">sr</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">SecureRandom</span><span class="o">();</span>
+
+<span class="kt">byte</span><span class="o">[]</span> <span class="n">android</span> <span class="o">=</span> <span class="k">new</span> <span class="kt">byte</span><span class="o">[</span><span class="mi">32</span><span class="o">];</span>
+<span class="kt">byte</span><span class="o">[]</span> <span class="n">server</span> <span class="o">=</span> <span class="k">new</span> <span class="kt">byte</span><span class="o">[</span><span class="mi">32</span><span class="o">];</span>
+<span class="kt">byte</span><span class="o">[]</span> <span class="n">password</span> <span class="o">=</span> <span class="k">new</span> <span class="kt">byte</span><span class="o">[</span><span class="mi">32</span><span class="o">];</span>
+
+<span class="n">sr</span><span class="o">.</span><span class="na">nextBytes</span><span class="o">(</span><span class="n">android</span><span class="o">);</span>
+<span class="n">sr</span><span class="o">.</span><span class="na">nextBytes</span><span class="o">(</span><span class="n">server</span><span class="o">);</span>
+
+<span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="s">"android:  "</span><span class="o">+</span> <span class="n">Base64</span><span class="o">.</span><span class="na">encodeToString</span><span class="o">(</span><span class="n">android</span><span class="o">,</span> <span class="n">Base64</span><span class="o">.</span><span class="na">NO_PADDING</span> <span class="o">|</span> <span class="n">Base64</span><span class="o">.</span><span class="na">URL_SAFE</span><span class="o">));</span>
+<span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="s">"server:   "</span><span class="o">+</span> <span class="n">Base64</span><span class="o">.</span><span class="na">encodeToString</span><span class="o">(</span><span class="n">server</span><span class="o">,</span> <span class="n">Base64</span><span class="o">.</span><span class="na">NO_PADDING</span> <span class="o">|</span> <span class="n">Base64</span><span class="o">.</span><span class="na">URL_SAFE</span><span class="o">));</span>
+
+<span class="k">for</span><span class="o">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="o">;</span> <span class="n">i</span><span class="o">&lt;</span><span class="mi">32</span><span class="o">;</span> <span class="n">i</span><span class="o">++)</span> <span class="n">password</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">=</span> <span class="o">(</span><span class="kt">byte</span><span class="o">)</span> <span class="o">(</span><span class="n">android</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">^</span> <span class="n">server</span><span class="o">[</span><span class="n">i</span><span class="o">]);</span>
+<span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="s">"passphrase: "</span><span class="o">+</span> <span class="n">Base64</span><span class="o">.</span><span class="na">encodeToString</span><span class="o">(</span><span class="n">key</span><span class="o">,</span> <span class="n">Base64</span><span class="o">.</span><span class="na">NO_PADDING</span> <span class="o">|</span> <span class="n">Base64</span><span class="o">.</span><span class="na">URL_SAFE</span><span class="o">));</span>
+</pre></div>
+
+<ul>
+<li>Changing the password on the p12 file:
+
+<ul>
+<li><code>openssl pkcs12 -in &lt; key.p12 &gt; -nocerts -passin pass:notasecret -nodes -out /tmp/me.pem</code></li>
+<li><code>openssl pkcs12 -export -in /tmp/me.pem -out &lt; mykey.p12 &gt; -name privatekey -passout &lt; New Passphrase &gt;</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ol>
+
+<p>e.g.</p>
+
+<ul>
+<li>How to make curl requests while authenticated via oauth.</li>
+<li>How to monitor background jobs.</li>
+<li><p>How to run the app through a proxy.</p></li>
+</ul>
+
+<ol>
+<li>
+<p><a href="">Identity Toolkit</a></p>
+
+<ul>
+<li>TBD</li>
+</ul>
+</li>
+<li>
+<p>Google Cloud Storage</p>
+
+<ul>
+<li>TBD</li>
+</ul>
+</li>
+<li>
+<p>App Engine Modules</p>
+
+<ul>
+<li>In <strong>abelana-gcp/endpoints</strong>, create a folder called <strong>private</strong>
+</li>
+<li>Create <strong>private/gitkit-server-config.json</strong>
+</li>
+</ul>
+
+<div class="highlight highlight-json"><pre><span class="p">{</span>
+<span class="nt">"clientId"</span> <span class="p">:</span> <span class="s2">"41652380zzzz-xxxxxxxxxxxxx.apps.googleusercontent.com"</span><span class="p">,</span>
+<span class="nt">"serverApiKey"</span> <span class="p">:</span> <span class="s2">"yyyyyyyyyyyyyyyyyyyyyyyy"</span><span class="p">,</span>
+<span class="nt">"widgetUrl"</span> <span class="p">:</span> <span class="s2">"https//&lt;your-appengine-project&gt;.appspot.com/gitkit"</span><span class="p">,</span>
+<span class="nt">"cookieName"</span> <span class="p">:</span> <span class="s2">"gtoken"</span>
+<span class="p">}</span>
+</pre></div>
+
+<ul>
+<li>Create <strong>private/abelana-config.json</strong>
+</li>
+</ul>
+
+<div class="highlight highlight-json"><pre><span class="p">{</span>
+<span class="nt">"AuthEmail"</span> <span class="p">:</span> <span class="s2">"&lt;Service Account Email&gt;@developer.gserviceaccount.com"</span><span class="p">,</span>
+<span class="nt">"ProjectID"</span> <span class="p">:</span> <span class="s2">"&lt;YOUR PROJECT ID&gt;"</span><span class="p">,</span>
+<span class="nt">"Bucket"</span> <span class="p">:</span> <span class="s2">"&lt;Your Upload bucket&gt;"</span><span class="p">,</span>
+<span class="nt">"RedisPW"</span> <span class="p">:</span> <span class="s2">"&lt;YOUR REDIS PASSWORD&gt;"</span><span class="p">,</span>
+<span class="nt">"Redis"</span> <span class="p">:</span> <span class="s2">"&lt;IP OF YOUR REDIS INSTANCE&gt;:6379"</span><span class="p">,</span>
+<span class="nt">"TimelineBatchSize"</span> <span class="p">:</span> <span class="mi">100</span><span class="p">,</span>
+<span class="nt">"UploadRetries"</span> <span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+<span class="nt">"EnableBackdoor"</span> <span class="p">:</span> <span class="kc">false</span><span class="p">,</span>
+<span class="nt">"EnableStubs"</span> <span class="p">:</span> <span class="kc">false</span>
+<span class="p">}</span>
+</pre></div>
+</li>
+<li>
+<p><a href="http://redis.io/">Redis</a>:</p>
+
+<ul>
+<li>Use one click install, to start, you only need 1 instance.</li>
+<li>Use <strong>gcloud instance ssh ...</strong> to connect with your instance.</li>
+<li>Edit /etc/redis/redis.config.</li>
+<li>Add <code>requirepass "&lt;YOUR REDIS PASSWORD&gt;"</code>.</li>
+</ul>
+</li>
+<li><p>Image Magick</p></li>
+<li><p>What dependencies does it have (where are they expressed) and how do I install them?</p></li>
+<li><p>Can I see the project working before I change anything?</p></li>
+<li>
+<p>How we set up Redis:</p>
+
+<ul>
+<li>Use one click install to get us 3 redis instances (master - 2 slaves).</li>
+<li>For each instance, set it to restart automatically.</li>
+<li>get the Internal &amp; External IP address for the Master.</li>
+<li>Add a backup cron job to backup the db every 15 minutes.</li>
+<li>(Optional) Add firewall entries to all me to access from my development system.</li>
+<li>Add IP's to app config files.</li>
+</ul>
+</li>
+</ol>
+
+<h2>
+<a id="testing" class="anchor" href="#testing" aria-hidden="true"><span class="octicon octicon-link"></span></a>Testing</h2>
+
+<p>How do I run the project's automated tests?</p>
+
+<ul>
+<li><p>Unit Tests</p></li>
+<li><p>Integration Tests</p></li>
+</ul>
+
+<h2>
+<a id="deploying" class="anchor" href="#deploying" aria-hidden="true"><span class="octicon octicon-link"></span></a>Deploying</h2>
+
+<h3>
+<a id="how-to-set-up-the-deployment-environment" class="anchor" href="#how-to-set-up-the-deployment-environment" aria-hidden="true"><span class="octicon octicon-link"></span></a>How to set up the deployment environment</h3>
+
+<ul>
+<li>Add-ons, packages, or other dependencies required for deployment.</li>
+<li>Required environment variables or credentials not included in git.</li>
+<li>Monitoring services and logging.</li>
+</ul>
+
+<h3>
+<a id="how-to-deploy" class="anchor" href="#how-to-deploy" aria-hidden="true"><span class="octicon octicon-link"></span></a>How to deploy</h3>
+
+<h2>
+<a id="troubleshooting--useful-tools" class="anchor" href="#troubleshooting--useful-tools" aria-hidden="true"><span class="octicon octicon-link"></span></a>Troubleshooting &amp; useful tools</h2>
+
+<h3>
+<a id="examples-of-common-tasks" class="anchor" href="#examples-of-common-tasks" aria-hidden="true"><span class="octicon octicon-link"></span></a>Examples of common tasks</h3>
+
+<p>e.g.</p>
+
+<ul>
+<li>How to make curl requests while authenticated via oauth.</li>
+<li>How to monitor background jobs.</li>
+<li>How to run the app through a proxy.</li>
+</ul>
+
+<h3>
+<a id="suggested-reading" class="anchor" href="#suggested-reading" aria-hidden="true"><span class="octicon octicon-link"></span></a>Suggested Reading</h3>
+
+<ul>
+<li><a href="https://cloud.google.com/appengine/kb/general#static-ip">https://cloud.google.com/appengine/kb/general#static-ip</a></li>
+<li><a href="https://cloud.google.com/storage/docs/authentication">https://cloud.google.com/storage/docs/authentication</a></li>
+</ul>
+
+<h2>
+<a id="contributing-changes" class="anchor" href="#contributing-changes" aria-hidden="true"><span class="octicon octicon-link"></span></a>Contributing changes</h2>
+
+<ul>
+<li>See <a href="CONTRIB.md">CONTRIB.md</a>
+</li>
+</ul>
+
+<h2>
+<a id="licensing" class="anchor" href="#licensing" aria-hidden="true"><span class="octicon octicon-link"></span></a>Licensing</h2>
+
+<ul>
+<li>See <a href="LICENSE">LICENSE</a>
+</li>
+</ul>
+        </section>
+
+        <footer>
+          Abelana-gcp is maintained by <a href="https://github.com/GoogleCloudPlatform">GoogleCloudPlatform</a><br>
+          This page was generated by <a href="http://pages.github.com">GitHub Pages</a>. Tactile theme by <a href="https://twitter.com/jasonlong">Jason Long</a>.
+        </footer>
+
+        
+      </div>
+    </div>
+  </body>
+</html>
