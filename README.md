@@ -24,25 +24,26 @@ How do I, as a developer, bring this project up as my own Google Cloud Platform 
 1. Grab the project from GitHub
   * Following the Go guidelines, the project belongs in your GOPATH (ours is ~/go)
   * The files go into $GOPATH/src/github.com/GoogleCloudPlatform/abelana-gcp
-  * There are 3 appengine applications:
-    * **default** - the main website, supports identity-toolkit signon. (We took their sample)
-    * **endpoints** - Where most of the action occurs
-    * **notice** - Takes [Object Change Notifications](https://cloud.google.com/storage/docs/object-change-notification) from Google Cloud Storage and connects w/ the Image magick for resizing and re-encoding. Then uploads to GCS, and notifies endpoints.
-  * There is also a third_party directory of code we modified.
+  * There are 3 Appe Engine applications:
+    * **default** - the main website, supports identity-toolkit sign-on. (We took their sample)
+    * **endpoints** - Where most of the action occurs.
+    * **notice** - Takes [Object Change Notifications](https://cloud.google.com/storage/docs/object-change-notification) from Google Cloud Storage and connects with the Image magick for resizing and re-encoding. Then uploads to GCS, and notifies endpoints.
+  * There is also a third party directory of code we modified.
   * The GCE app
     * **imagemagick** - the docker component for hosting imagemagick
-  * [Redis](http://redis.io/) -- Not much there, you should modify the config files for your instance yourself
+  * [Redis](http://redis.io/) -- Not much there, you should modify the config files for your instance yourself.
 
 1. Create a Cloud Project
-  * Using the [Developer Console](https://console.developers.google.com/project)
-    * first setup billing
-    * Create Project
+  * Using the [Developer Console](https://console.developers.google.com/project):
+    * Set up billing.
+    * Create the project.
 
-1. Click on **Permissions**, take note of the App Engine Service Account, you'll need that later.
+1. Click on **Permissions**.
+  * Take note of the App Engine Service Account, you'll need that later.
 
-1. Click on **Credentials**, you are going to need the following:
+1. Click on **Credentials**. You are going to need the following:
   * Client ID for Android application
-    * Please see this [page](https://developers.google.com/+/mobile/android/getting-started#step_1_enable_the_google_api), you
+    * Please see [this page](https://developers.google.com/+/mobile/android/getting-started#step_1_enable_the_google_api), you
     only need step 1 #5.
   * Client ID for web application
     * redirect URI's should include:
@@ -50,13 +51,13 @@ How do I, as a developer, bring this project up as my own Google Cloud Platform 
         * https//<your-appengine-project>.appspot.com/gitkit
 
   * Service Account
-    * Generate and download a new P12 key
+    * Generate and download a new P12 key.
 
   * Public API Access
     * Key for browser applications
     * Key for server applications
 
-1. Click on **APIs**, you will need the followng:
+1. Click on **APIs**. You will need the following:
   * Google Cloud Storage
   * Google Cloud Storage JSON API
   * Google Compute Engine
@@ -67,7 +68,7 @@ How do I, as a developer, bring this project up as my own Google Cloud Platform 
   * Google+ API
   * Identity Toolkit API
 
-1. Suff for the Android Client
+1. Details for the Android Client
   * How we create create the secretKey that resides on Android, used to access Cloud Storage
     ```java
     static SecureRandom sr = new SecureRandom();
