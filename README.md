@@ -1,10 +1,10 @@
 # Cloud-Abelana-Go
-
+<!--
 ![Abelana](https://abelana-gcp.github.com/images/0001.0001.png)
 ![logo](https://abelana-gcp.github.com/images/image05.png)
 
 ![Architecture](httpsabelana-gcp.github.com/images/architecture.png)
-
+-->
 Abelana (means "Share" in Zulu) is a project that allows users to take photos and share them with
 their friends. This project is for the [Google Cloud Platform](https://cloud.google.com/).
 
