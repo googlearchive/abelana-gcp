@@ -7,9 +7,6 @@ dispatch:
   - url: "abelana-222.appspot.com/"
     module: default
 
-  - url: "*/d/*"
-    module: default
-
   - url: "*/user/*"
     module: "endpoints"
 
@@ -30,3 +27,6 @@ dispatch:
 
   - url: "*/google6babd16c2f1c225d.html"
     module: ownership
+
+  - url: "*/*"
+    module: "default"
