@@ -11,7 +11,7 @@ their friends. This project is for the [Google Cloud Platform](https://cloud.goo
 The Cloud apps were written by Les Vogel and Francesc Campoy Flores. For questions and comments,
 please join the [Google Group](https://groups.google.com/forum/#!forum/abelana-app).
 
-Disclaimer: This application is for educational purposes only and is not a Google product or service.
+Disclaimer: This sample application is for educational purposes only and is not a Google product or service.
 
 # This is a work in progress -- It is incomplete -- Please be patient!
 The goal of this project is to help you learn how to create your applications in the cloud. We will
