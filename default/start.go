@@ -39,7 +39,7 @@ const (
 
 // Identity toolkit configurations.
 const (
-	browserAPIKey  = "AIzaSyAHcspnlUqnujNEsmaYvj_INhddAWctpIg"
+	browserAPIKey  = "AIzaSyAHcspnlUqnujNEsmaYvj_INhddAWctpIg" // YOURS WILL BE DIFFERENT
 	serverAPIKey   = "AIzaSyABGbFuzMn9RoCfcJnyMCZ5kmKSR56ii_k"
 	clientID       = "416523807683-7g3hkiimg4q3naa2ebn0n1jnk5jb29au.apps.googleusercontent.com"
 	serviceAccount = "416523807683-87kpuu2fsvov4hbg9j8f8808an8h2k2b@developer.gserviceaccount.com"
