@@ -382,15 +382,8 @@ func Follow(cx appengine.Context, at Access, p martini.Params, w http.ResponseWr
 				return err
 			}
 			if uniqueP(user.IWantToFollow, email) {
-				iwant := len(user.IWantToFollow)
-				if iwant == cap(user.IWantToFollow) {
-					newSlice := make([]string, iwant, iwant+1)
-					copy(newSlice, user.IWantToFollow)
-					user.IWantToFollow = newSlice[0 : iwant+1]
-				}
-				kUser := datastore.NewKey(cx, "User", at.ID(), 0, nil)
-				user.IWantToFollow[iwant] = email
-				_, err = datastore.Put(cx, kUser, user)
+				user.IWantToFollow = append(user.IWantToFollow, email)
+				_, err = datastore.Put(cx, datastore.NewKey(cx, "User", at.ID(), 0, nil), user)
 				return err
 			}
 			return nil
