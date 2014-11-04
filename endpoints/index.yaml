@@ -1,7 +1,0 @@
-indexes:
-
-- kind: Photo
-  ancestor: yes
-  properties:
-  - name: Date
-    direction: desc

@@ -43,8 +43,6 @@ handlers:
   static_files: static/img/favicon.ico
   upload: static/img/favicon.ico
 
-# for now all html files will be served statically.
-- url: /(.*\.html)$
-  static_files: static/\1
-  upload: static/*.html
+- url: /*
+  static_dir: static/
   secure: always
