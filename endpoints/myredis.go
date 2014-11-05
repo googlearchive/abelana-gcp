@@ -184,7 +184,7 @@ func getTimeline(cx appengine.Context, userID, lastid string) ([]TLEntry, error)
 	}
 	ix := 0
 
-	if lastid != "0" {
+	if lastid != "0" { // if we aren't the first time, search for the next batch
 		for i, item := range list {
 			if item == lastid {
 				ix = i
