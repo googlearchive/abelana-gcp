@@ -6,18 +6,24 @@
 ![Architecture](httpsabelana-gcp.github.com/images/architecture.png)
 -->
 Abelana (means "Share" in Zulu) is a project that allows users to take photos and share them with
-their friends. This project is for the [Google Cloud Platform](https://cloud.google.com/).
+their friends. 
+
+This project contains sample code for the [Google Cloud Platform](https://cloud.google.com/).
+A companion [Android Client](https://github.com/GoogleCloudPlatform/Abelana-Android) is helpful to see.
 
 The Cloud apps were written by Les Vogel and Francesc Campoy Flores. For questions and comments,
 please join the [Google Group](https://groups.google.com/forum/#!forum/abelana-app).
 
 Disclaimer: This sample application is for educational purposes only and is not a Google product or service.
 
-# This is a work in progress -- It is incomplete -- Please be patient!
+# This is a work in progress 
+### It is incomplete 
+### Please be patient!
 The goal of this project is to help you learn how to create your applications in the cloud. We will
 be supporting this project with videos and additional material.
 
-## Project setup, installation, and configuration (Not yet enough to get it running)
+## Project setup, installation, and configuration
+### (Not yet enough to get it running)
 
 How do I, as a developer, bring this project up as my own Google Cloud Platform project?
 
