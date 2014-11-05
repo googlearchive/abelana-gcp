@@ -17,7 +17,8 @@ Disclaimer: This application is for educational purposes only and is not a Googl
 The goal of this project is to help you learn how to create your applications in the cloud, we will
 be supporting this project with videos and additional material.
 
-## Project setup, installation, and configuration (Not yet enough to get it running)
+## Project setup, installation, and configuration
+###(There isn't yet enough to get it running)
 
 How do I, as a developer, bring this project up as my own Google Cloud Platform project?
 
@@ -67,7 +68,7 @@ How do I, as a developer, bring this project up as my own Google Cloud Platform 
   * Google+ API
   * Identity Toolkit API
 
-1. Suff for the Android Client
+1. Suff for the [Android Client](https://github.com/GoogleCloudPlatform/Abelana-Android)
   * How we create create the secretKey that resides on Android, used to access Cloud Storage
     ```java
     static SecureRandom sr = new SecureRandom();
