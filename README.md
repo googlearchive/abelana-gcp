@@ -100,7 +100,7 @@ How do I, as a developer, bring this project up as my own Google Cloud Platform 
 
 1. Storage > Cloud Storage > Storage browser
   * Create two buckets, we typically use xxxx & xxxx-in
-  * Add the service account you created earlier as a writer to each bucket.
+  * Add the service account you created earlier as a writer to each bucket.<br />
   (This is where your images are loaded)
 
 1. 
