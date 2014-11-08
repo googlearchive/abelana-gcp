@@ -54,7 +54,7 @@ How do I, as a developer, bring this project up as my own Google Cloud Platform 
   * Client ID for web application.
     * redirect URI's should include:
         * https://localhost/callback
-        * https//<your-appengine-project>.appspot.com/gitkit
+        * https//< your-appengine-project >.appspot.com/d/gitkit.html
 
   * Service Account
     * Generate and download a new P12 key.
@@ -95,7 +95,15 @@ How do I, as a developer, bring this project up as my own Google Cloud Platform 
 
     * Changing the password on the p12 file:
         * `openssl pkcs12 -in < key.p12 > -nocerts -passin pass:notasecret -nodes -out /tmp/me.pem`
-        * `openssl pkcs12 -export -in /tmp/me.pem -out < mykey.p12 > -name privatekey -passout < New Passphrase > `
+        * `openssl pkcs12 -export -in /tmp/me.pem -out < mykey.p12 > -name privatekey -passout < New Passphrase >`
+        * This **mykey.p12** gets copied to the **res/raw** directory of your Android app
+
+1. Storage > Cloud Storage > Storage browser
+  * Create two buckets, we typically use xxxx & xxxx-in
+  * Add the service account you created earlier as a writer to each bucket.
+  (This is where your images are loaded)
+
+1. 
 
 e.g.
 * How to make curl requests while authenticated via oauth.
