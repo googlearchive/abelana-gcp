@@ -319,10 +319,6 @@ func GetFollowing(cx appengine.Context, at Access, p martini.Params, w http.Resp
 
 // GetPerson -- find out about someone  : Person
 func GetPerson(cx appengine.Context, at Access, p martini.Params, w http.ResponseWriter) {
-	if abelanaConfig().EnableStubs {
-		replyJSON(w, &Person{"abelana#follower", "00001", "lesv@abelana-app.com", "Les Vogel"})
-		return
-	}
 	var u User
 	err := datastore.Get(cx, datastore.NewKey(cx, "User", p["personid"], 0, nil), &u)
 	if err != nil {

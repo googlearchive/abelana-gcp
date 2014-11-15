@@ -17,12 +17,17 @@
 package abelana
 
 import (
+	"crypto/ecdsa"
+	"crypto/md5"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"io"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"net/http"
 	"strings"
 	"time"
@@ -34,9 +39,8 @@ import (
 )
 
 var (
-	gclient     *gitkit.Client
-	serverKey   []byte
-	publicCerts []*x509.Certificate
+	gclient *gitkit.Client
+	signKey *ecdsa.PrivateKey
 )
 
 func init() {
@@ -50,39 +54,20 @@ func init() {
 		config, err = gitkit.LoadConfig("private/gitkit-server-config.json")
 	}
 	if err != nil {
-		log.Fatalf("Unable to initialize gitkit config")
+		log.Fatalf("Unable to initialize gitkit config %v", err)
 	}
 	gclient, err = gitkit.New(config)
 	if err != nil {
-		log.Printf("new Client ** %v", err)
-		panic("unable to init gitkit")
+		log.Fatalf("new gitkit.New ** %v", err)
 	}
-	serverKey, err = ioutil.ReadFile("private/serverpw")
+	key, err := ioutil.ReadFile("private/signing-key.pem")
 	if err != nil {
-		panic("Unable to read serverKey")
+		log.Fatalf("Unable to get signing Key %v", err)
 	}
-}
-
-// haveCerts - make sure we have the certificates.
-func haveCerts(cx appengine.Context) {
-	if len(publicCerts) > 0 {
-		return
-	}
-	certs, err := appengine.PublicCertificates(cx)
+	b, _ := pem.Decode(key)
+	signKey, err = x509.ParseECPrivateKey(b.Bytes)
 	if err != nil {
-		panic("unable to get certs")
-	}
-
-	publicCerts = make([]*x509.Certificate, len(certs))
-	for i, cert := range certs {
-		block, _ := pem.Decode([]byte(cert.Data))
-		if block == nil {
-			panic("failed to parse certificate PEM")
-		}
-		publicCerts[i], err = x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			panic("failed to parse certificate: " + err.Error())
-		}
+		log.Fatalf("unable to parse signing Key %v", err)
 	}
 }
 
@@ -92,7 +77,6 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	var err error
 	var dName, photoURL string
 
-	haveCerts(cx)
 	client, err := gitkit.NewWithContext(cx, gclient)
 	if err != nil {
 		cx.Errorf("Failed to create a gitkit.Client with a context: %s", err)
@@ -138,12 +122,17 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 		return
 	}
 	parts[1] = base64.URLEncoding.EncodeToString(ts)
-	_, sig, err := appengine.SignBytes(cx, []byte(parts[0]+"."+parts[1]))
+
+	h := md5.New()
+	io.WriteString(h, parts[0]+"."+parts[1])
+	r, s, err := ecdsa.Sign(rand.Reader, signKey, h.Sum(nil))
 	if err != nil {
+		cx.Errorf("ecdsa.Sign %v", err)
 		http.Error(w, "Invalid Token", http.StatusUnauthorized)
 		return
 	}
-	parts[2] = base64.URLEncoding.EncodeToString(sig)
+	sig := base64.URLEncoding.EncodeToString(r.Bytes()) + "." + base64.URLEncoding.EncodeToString(s.Bytes())
+	parts[2] = base64.URLEncoding.EncodeToString([]byte(sig))
 
 	replyJSON(w, &ATOKJson{"abelana#accessToken", strings.Join(parts, ".")})
 
@@ -152,7 +141,7 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	if err != nil {
 		// Not found, must create
 		createUser(cx, User{UserID: at.UserID, DisplayName: dName, Email: token.Email})
-		if photoURL != "" {
+		if photoURL != "" && photoURL != "null" {
 			delayCopyUserPhoto.Call(cx, photoURL, at.UserID)
 		}
 	}
@@ -160,9 +149,9 @@ func Login(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 
 // Refresh will refresh an Access Token (ATok)
 func Refresh(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
-	haveCerts(cx)
-	s := strings.Split(p["atok"], ".")
-	ct, err := base64.URLEncoding.DecodeString(s[1])
+	//	haveCerts(cx)
+	parts := strings.Split(p["atok"], ".")
+	ct, err := base64.URLEncoding.DecodeString(parts[1])
 	at := &AccToken{}
 	if err = json.Unmarshal(ct, &at); err != nil {
 		http.Error(w, "Invalid Token", http.StatusUnauthorized)
@@ -175,20 +164,25 @@ func Refresh(cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 		http.Error(w, "Invalid Token", http.StatusUnauthorized)
 		return
 	}
-	s[1] = base64.URLEncoding.EncodeToString(ts)
-	_, sig, err := appengine.SignBytes(cx, []byte(s[0]+"."+s[1]))
+	parts[1] = base64.URLEncoding.EncodeToString(ts)
+
+	h := md5.New()
+	io.WriteString(h, parts[0]+"."+parts[1])
+	r, s, err := ecdsa.Sign(rand.Reader, signKey, h.Sum(nil))
 	if err != nil {
+		cx.Errorf("ecdsa.Sign %v", err)
 		http.Error(w, "Invalid Token", http.StatusUnauthorized)
 		return
 	}
-	s[2] = base64.URLEncoding.EncodeToString(sig)
+	sig := base64.URLEncoding.EncodeToString(r.Bytes()) + "." + base64.URLEncoding.EncodeToString(s.Bytes())
+	parts[2] = base64.URLEncoding.EncodeToString([]byte(sig))
 
-	replyJSON(w, &ATOKJson{"abelana#accessToken", strings.Join(s, ".")})
+	replyJSON(w, &ATOKJson{"abelana#accessToken", strings.Join(parts, ".")})
 }
 
-// GetSecretKey will send our key in a way that we only need call this once.
+// GetSecretKey will send our key in a way that we should only be called once.
 func GetSecretKey(w http.ResponseWriter) {
-	st := &Status{"abelana#status", base64.URLEncoding.EncodeToString(serverKey)}
+	st := &Status{"abelana#status", base64.URLEncoding.EncodeToString([]byte(abelanaConfig().ServerKey))}
 	replyJSON(w, st)
 }
 
@@ -226,8 +220,6 @@ func (at *AccToken) ID() string {
 func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.ResponseWriter) {
 	var at *AccToken
 
-	haveCerts(cx)
-	// FIXME -- TEMPORARY BACKDOOR
 	if abelanaConfig().EnableBackdoor && strings.HasPrefix(p["atok"], "LES") {
 		at = &AccToken{"00001", time.Now().UTC().Unix(),
 			time.Now().UTC().Add(120 * 24 * time.Hour).Unix()}
@@ -269,22 +261,32 @@ func Aauth(c martini.Context, cx appengine.Context, p martini.Params, w http.Res
 			return
 		}
 		// Check the signature.
-		s, err := base64.URLEncoding.DecodeString(part[2])
+		sig, err := base64.URLEncoding.DecodeString(part[2])
 		if err != nil {
 			http.Error(w, "Invalid Token", http.StatusUnauthorized)
 			return
 		}
-		for _, cert := range publicCerts {
-			err = cert.CheckSignature(x509.SHA256WithRSA, []byte(part[0]+"."+part[1]), s)
-			if err == nil {
-				break
-			}
-		}
+
+		hash := md5.New()
+		io.WriteString(hash, part[0]+"."+part[1])
+		p := strings.Split(string(sig), ".")
+		rp, err := base64.URLEncoding.DecodeString(p[0])
 		if err != nil {
-			cx.Errorf("CheckSignature %v %v", at.UserID, err)
-			publicCerts = nil // wipe out the certificates
-			haveCerts(cx)     // reload them.
 			http.Error(w, "Invalid Token", http.StatusUnauthorized)
+			return
+		}
+		sp, err := base64.URLEncoding.DecodeString(p[1])
+		if err != nil {
+			http.Error(w, "Invalid Token", http.StatusUnauthorized)
+			return
+		}
+		r := big.NewInt(0)
+		s := big.NewInt(0)
+		verify := ecdsa.Verify(&signKey.PublicKey, hash.Sum(nil), r.SetBytes(rp), s.SetBytes(sp))
+		if !verify {
+			cx.Errorf("CheckSignature %v %v", at.UserID, err)
+			http.Error(w, "Invalid Token", http.StatusUnauthorized)
+			return
 		}
 	}
 
