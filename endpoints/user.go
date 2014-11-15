@@ -42,7 +42,7 @@ func findUser(cx appengine.Context, id string) (*User, error) {
 // createUser will create the initial datastore entry for the user
 func createUser(cx appengine.Context, user User) error {
 	cx.Infof("CreateUser: %v", user)
-	user.IFollow = []string{"05245673354473659840", "05271790258892790624", "12730648828453578083"}
+	user.IFollow = abelanaConfig().AutoFollowers
 	_, err := datastore.Put(cx, datastore.NewKey(cx, "User", user.UserID, 0, nil), &user)
 	if err != nil {
 		cx.Errorf(" CreateUser %v %v", err, user.UserID)
@@ -55,15 +55,12 @@ func createUser(cx appengine.Context, user User) error {
 
 // initialSetup will add the initial things in a somewhat reasonable way.
 func initialSetup(cx appengine.Context, ID, email string) error {
-	if err := followById(cx, ID, "05245673354473659840"); err != nil {
-		return fmt.Errorf("initialSetup: %v", err)
+	for _, key := range abelanaConfig().AutoFollowers {
+		if err := followById(cx, ID, key); err != nil { // follow francesc
+			return fmt.Errorf("initialSetup: %v %v", key, err)
+		}
 	}
-	if err := followById(cx, ID, "05271790258892790624"); err != nil {
-		cx.Errorf("initialSetup2: %v", err)
-	}
-	if err := followById(cx, ID, "12730648828453578083"); err != nil {
-		cx.Errorf("initialSetup3: %v", err)
-	}
+
 	delayInitialPhotos.Call(cx, ID)
 	delayFindFollows.Call(cx, ID, email)
 	return nil
@@ -75,6 +72,9 @@ func copyUserPhoto(cx appengine.Context, url string, userID string) error {
 	url = strings.Replace(url, "sz=50", "sz=2048", 1)
 	if DEBUG {
 		cx.Infof("copyUserPhoto: %v %v", userID, url)
+	}
+	if url == "null" {
+		url = abelanaConfig().Silhouette
 	}
 	client := urlfetch.Client(cx)
 	resp, err := client.Get(url)

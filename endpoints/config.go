@@ -13,10 +13,12 @@ type AbelanaConfig struct {
 	Bucket            string
 	RedisPW           string
 	Redis             string
+	ServerKey         string
+	AutoFollowers     []string
+	Silhouette        string
 	TimelineBatchSize int
 	UploadRetries     int
 	EnableBackdoor    bool
-	EnableStubs       bool
 }
 
 var config = mustLoadConfig("private/abelana-config.json")
