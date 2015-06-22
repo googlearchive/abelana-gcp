@@ -14,7 +14,6 @@ import (
 
 	"code.google.com/p/go.net/context"
 	auth "code.google.com/p/google-api-go-client/oauth2/v2"
-
 	"github.com/gographics/imagick/imagick"
 	"github.com/golang/oauth2/google"
 	"google.golang.org/cloud"
@@ -50,8 +49,8 @@ var (
 )
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
+	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	ctx = cloud.NewContext(projectID, &http.Client{
 		Transport: google.NewComputeEngineConfig("").NewTransport(),
@@ -65,9 +64,9 @@ func main() {
 
 	http.HandleFunc("/healthcheck", func(http.ResponseWriter, *http.Request) {})
 	http.HandleFunc("/", notificationHandler)
-	log.Println("server about to start listening on", listenAddress)
-	err = http.ListenAndServe(listenAddress, nil)
-	if err != nil {
+	log.Println("server listening on", listenAddress)
+
+	if err := http.ListenAndServe(listenAddress, nil); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -79,8 +78,7 @@ func notificationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := r.Header.Get("Authorization")
-	if ok, err := authorized(token); !ok {
+	if ok, err := authorized(r.Header.Get("Authorization")); !ok {
 		if err != nil {
 			log.Printf("authorize: %v", err)
 		}
@@ -89,7 +87,7 @@ func notificationHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	defer func() { log.Printf("done in %v", time.Since(start)) }()
+	defer func() { log.Printf("%v: processed in %v", name, time.Since(start)) }()
 
 	if err := processImage(bucket, name); err != nil {
 		// TODO: should this remove uploaded images?
@@ -98,10 +96,25 @@ func notificationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := notifyDone(name, token); err != nil {
+	if err := notifyDone(name); err != nil {
 		log.Println(err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func authorized(token string) (ok bool, err error) {
+	if fs := strings.Fields(token); len(fs) == 2 && fs[0] == "Bearer" {
+		token = fs[1]
+	} else {
+		return false, nil
+	}
+
+	svc, err := auth.New(http.DefaultClient)
+	if err != nil {
+		return false, err
+	}
+	tok, err := svc.Tokeninfo().Access_token(token).Do()
+	return err == nil && tok.Email == authEmail, err
 }
 
 func processImage(bucket, name string) error {
@@ -122,7 +135,6 @@ func processImage(bucket, name string) error {
 	if err := wand.SetImageFormat("WEBP"); err != nil {
 		return fmt.Errorf("set WEBP format: %v", err)
 	}
-	wand.SetGravity(imagick.GRAVITY_CENTER)
 
 	errc := make(chan error, len(sizes))
 	for suffix, size := range sizes {
@@ -130,11 +142,6 @@ func processImage(bucket, name string) error {
 			errc <- func() error {
 				defer wand.Destroy()
 
-				/* Fix later, crop the images to be square.
-				if err := wand.CropImage(x, y, 0, 0); err != nil {
-					return fmt.Errorf("crop: %v", err)
-				}
-				*/
 				if err := wand.AdaptiveResizeImage(size.x, size.y); err != nil {
 					return fmt.Errorf("resize: %v", err)
 				}
@@ -168,30 +175,11 @@ func processImage(bucket, name string) error {
 	return nil
 }
 
-func authorized(token string) (ok bool, err error) {
-	if fs := strings.Fields(token); len(fs) == 2 && fs[0] == "Bearer" {
-		token = fs[1]
-	} else {
-		return false, nil
-	}
-
-	svc, err := auth.New(http.DefaultClient)
-	if err != nil {
-		return false, err
-	}
-	tok, err := svc.Tokeninfo().Access_token(token).Do()
-	return err == nil && tok.Email == authEmail, err
-}
-
-func notifyDone(name, token string) (err error) {
-	// drop the file extension
-	name = name[:strings.LastIndex(name, ".")]
+func notifyDone(name string) (err error) {
 	req, err := http.NewRequest("POST", pushURL+name, &bytes.Buffer{})
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", token)
-
 	res, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("photo push: %v", err)
