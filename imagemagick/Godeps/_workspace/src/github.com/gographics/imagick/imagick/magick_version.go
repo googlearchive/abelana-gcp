@@ -5,7 +5,6 @@
 package imagick
 
 /*
-#cgo pkg-config: MagickWand
 #include <wand/MagickWand.h>
 */
 import "C"
@@ -14,7 +13,6 @@ import "unsafe"
 // Returns the ImageMagick API copyright as a string constant.
 func GetCopyright() string {
 	cstr := C.MagickGetCopyright()
-	defer C.free(unsafe.Pointer(cstr))
 	return C.GoString(cstr)
 }
 
@@ -28,14 +26,12 @@ func GetHomeURL() string {
 // Returns the ImageMagick package name as a string constant.
 func GetPackageName() string {
 	cstr := C.MagickGetPackageName()
-	defer C.free(unsafe.Pointer(cstr))
 	return C.GoString(cstr)
 }
 
 // Returns the ImageMagick release date as a string constant.
 func GetReleaseDate() string {
 	cstr := C.MagickGetReleaseDate()
-	defer C.free(unsafe.Pointer(cstr))
 	return C.GoString(cstr)
 }
 
@@ -43,7 +39,6 @@ func GetReleaseDate() string {
 func GetQuantumDepth() (string, uint) {
 	cst := C.size_t(0)
 	csq := C.MagickGetQuantumDepth(&cst)
-	defer C.free(unsafe.Pointer(csq))
 	return C.GoString(csq), uint(cst)
 }
 
@@ -51,7 +46,6 @@ func GetQuantumDepth() (string, uint) {
 func GetQuantumRange() (string, uint) {
 	cst := C.size_t(0)
 	csq := C.MagickGetQuantumRange(&cst)
-	defer C.free(unsafe.Pointer(csq))
 	return C.GoString(csq), uint(cst)
 }
 
@@ -70,7 +64,6 @@ func GetResourceLimit(rtype ResourceType) int64 {
 func GetVersion() (version string, nversion uint) {
 	cnver := C.size_t(0)
 	csver := C.MagickGetVersion(&cnver)
-	defer C.free(unsafe.Pointer(csver))
 	version = C.GoString(csver)
 	nversion = uint(cnver)
 	return
