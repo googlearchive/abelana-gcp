@@ -1,6 +1,8 @@
 # Cloud-Abelana-Go
 ## [Abelana v2](https://github.com/googlecloudplatform/abelana)
-Is a Java cloud app, with an Android app and iOS (swift) app.
+Is a Java cloud app, with an Android app and iOS (swift) app  - please check it out.
+
+## Abealan v1
 <!--
 ![Abelana](https://abelana-gcp.github.com/images/0001.0001.png)
 ![logo](https://abelana-gcp.github.com/images/image05.png)
