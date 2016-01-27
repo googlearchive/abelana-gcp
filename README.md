@@ -1,3 +1,9 @@
+![status: inactive](https://img.shields.io/badge/status-inactive-red.svg)
+
+This repository is deprecated and no longer maintained, the sample has been *moved* to [GoogleCloudPlatform/abelana](https://github.com/GoogleCloudPlatform/abelana).
+
+Copyright (C) 2016 Google Inc.
+
 # Cloud-Abelana-Go
 ## [Abelana v2](https://github.com/googlecloudplatform/abelana)
 Is a Java cloud app, with an Android app and iOS (swift) app  - please check it out.
