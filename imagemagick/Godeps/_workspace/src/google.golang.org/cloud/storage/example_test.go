@@ -17,11 +17,11 @@ package storage_test
 import (
 	"io/ioutil"
 	"log"
-	"net/http"
 	"testing"
 
-	"github.com/golang/oauth2/google"
-
+	"golang.org/x/net/context"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/cloud"
 	"google.golang.org/cloud/storage"
 )
@@ -30,32 +30,36 @@ import (
 // Related to https://codereview.appspot.com/107320046
 func TestA(t *testing.T) {}
 
-func Example_auth() {
-	// Initialize an authorized transport with Google Developers Console
+func Example_auth() context.Context {
+	// Initialize an authorized context with Google Developers Console
 	// JSON key. Read the google package examples to learn more about
 	// different authorization flows you can use.
-	// http://godoc.org/github.com/golang/oauth2/google
-	conf, err := google.NewServiceAccountJSONConfig(
-		"/path/to/json/keyfile.json",
-		storage.ScopeFullControl)
+	// http://godoc.org/golang.org/x/oauth2/google
+	jsonKey, err := ioutil.ReadFile("/path/to/json/keyfile.json")
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	ctx := cloud.NewContext("project-id", &http.Client{Transport: conf.NewTransport()})
-	_ = ctx // Use the context (see other examples)
+	conf, err := google.JWTConfigFromJSON(
+		jsonKey,
+		storage.ScopeFullControl,
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	ctx := cloud.NewContext("project-id", conf.Client(oauth2.NoContext))
+	// Use the context (see other examples)
+	return ctx
 }
 
-func Example_listObjects() {
-	// see the auth example how to initiate a context.
-	ctx := cloud.NewContext("project-id", &http.Client{Transport: nil})
+func ExampleListObjects() {
+	ctx := Example_auth()
 
 	var query *storage.Query
 	for {
 		// If you are using this package on App Engine Managed VMs runtime,
 		// you can init a bucket client with your app's default bucket name.
 		// See http://godoc.org/google.golang.org/appengine/file#DefaultBucketName.
-		objects, err := storage.List(ctx, "bucketname", query)
+		objects, err := storage.ListObjects(ctx, "bucketname", query)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -73,9 +77,8 @@ func Example_listObjects() {
 	log.Println("paginated through all object items in the bucket you specified.")
 }
 
-func Example_readObjects() {
-	// see the auth example how to initiate a context.
-	ctx := cloud.NewContext("project-id", &http.Client{Transport: nil})
+func ExampleNewReader() {
+	ctx := Example_auth()
 
 	rc, err := storage.NewReader(ctx, "bucketname", "filename1")
 	if err != nil {
@@ -90,50 +93,58 @@ func Example_readObjects() {
 	log.Println("file contents:", slurp)
 }
 
-func Example_writeObjects() {
-	// see the auth example how to initiate a context.
-	ctx := cloud.NewContext("project-id", &http.Client{Transport: nil})
+func ExampleNewWriter() {
+	ctx := Example_auth()
 
-	wc := storage.NewWriter(ctx, "bucketname", "filename1", &storage.Object{
-		ContentType: "text/plain",
-	})
+	wc := storage.NewWriter(ctx, "bucketname", "filename1")
+	wc.ContentType = "text/plain"
+	wc.ACL = []storage.ACLRule{{storage.AllUsers, storage.RoleReader}}
 	if _, err := wc.Write([]byte("hello world")); err != nil {
 		log.Fatal(err)
 	}
 	if err := wc.Close(); err != nil {
 		log.Fatal(err)
 	}
-
-	o, err := wc.Object()
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println("updated object:", o)
+	log.Println("updated object:", wc.Object())
 }
 
-func Example_touchObjects() {
-	// see the auth example how to initiate a context.
-	ctx := cloud.NewContext("project-id", &http.Client{Transport: nil})
+func ExampleCopyObject() {
+	ctx := Example_auth()
 
-	o, err := storage.Put(ctx, "bucketname", "filename", &storage.Object{
-		ContentType: "text/plain",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println("touched new file:", o)
-}
-
-func Example_copyObjects() {
-	// see the auth example how to initiate a context.
-	ctx := cloud.NewContext("project-id", &http.Client{Transport: nil})
-
-	o, err := storage.Copy(ctx, "bucketname", "file1", &storage.Object{
-		Name:   "file2",
-		Bucket: "yet-another-bucketname",
-	})
+	o, err := storage.CopyObject(ctx, "bucketname", "file1", "another-bucketname", "file2", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println("copied file:", o)
+}
+
+func ExampleDeleteObject() {
+	// To delete multiple objects in a bucket, first ListObjects then delete them.
+	ctx := Example_auth()
+
+	// If you are using this package on App Engine Managed VMs runtime,
+	// you can init a bucket client with your app's default bucket name.
+	// See http://godoc.org/google.golang.org/appengine/file#DefaultBucketName.
+	const bucket = "bucketname"
+
+	var query *storage.Query // Set up query as desired.
+	for {
+		objects, err := storage.ListObjects(ctx, bucket, query)
+		if err != nil {
+			log.Fatal(err)
+		}
+		for _, obj := range objects.Results {
+			log.Printf("deleting object name: %q, size: %v", obj.Name, obj.Size)
+			if err := storage.DeleteObject(ctx, bucket, obj.Name); err != nil {
+				log.Fatalf("unable to delete %q: %v", obj.Name, err)
+			}
+		}
+		// if there are more results, objects.Next will be non-nil.
+		query = objects.Next
+		if query == nil {
+			break
+		}
+	}
+
+	log.Println("deleted all object items in the bucket you specified.")
 }

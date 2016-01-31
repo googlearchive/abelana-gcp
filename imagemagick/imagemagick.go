@@ -9,13 +9,15 @@ import (
 	"net/http"
 	"time"
 
+	"golang.org/x/net/context"
+	"golang.org/x/oauth2"
+
 	"runtime"
 	"strings"
 
-	"code.google.com/p/go.net/context"
-	auth "code.google.com/p/google-api-go-client/oauth2/v2"
 	"github.com/gographics/imagick/imagick"
-	"github.com/golang/oauth2/google"
+	auth "github.com/google/google-api-go-client/oauth2/v2"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/cloud"
 	"google.golang.org/cloud/storage"
 )
@@ -29,8 +31,6 @@ const (
 )
 
 var (
-	account = flag.String("account", "service-account.json", "path to service account JSON file")
-
 	// map with the suffixes and sizes to generate
 	sizes = map[string]struct{ x, y uint }{
 		"a": {480, 800},
@@ -52,15 +52,11 @@ func main() {
 	flag.Parse()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	ctx = cloud.NewContext(projectID, &http.Client{
-		Transport: google.NewComputeEngineConfig("").NewTransport(),
-	})
+	client = &http.Client{Transport: &oauth2.Transport{
+		Source: google.ComputeTokenSource(""),
+	}}
 
-	config, err := google.NewServiceAccountJSONConfig(*account, "https://www.googleapis.com/auth/userinfo.email")
-	if err != nil {
-		log.Fatal(err)
-	}
-	client = &http.Client{Transport: config.NewTransport()}
+	ctx = cloud.NewContext(projectID, client)
 
 	http.HandleFunc("/healthcheck", func(http.ResponseWriter, *http.Request) {})
 	http.HandleFunc("/", notificationHandler)
@@ -113,7 +109,7 @@ func authorized(token string) (ok bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	tok, err := svc.Tokeninfo().Access_token(token).Do()
+	tok, err := svc.Tokeninfo().AccessToken(token).Do()
 	return err == nil && tok.Email == authEmail, err
 }
 
@@ -152,15 +148,12 @@ func processImage(bucket, name string) error {
 				}
 				target = fmt.Sprintf("%s_%s.webp", target, suffix)
 
-				w := storage.NewWriter(ctx, outputBucket, target, nil)
+				w := storage.NewWriter(ctx, outputBucket, target)
 				if _, err := w.Write(wand.GetImageBlob()); err != nil {
 					return fmt.Errorf("new writer: %v", err)
 				}
 				if err := w.Close(); err != nil {
 					return fmt.Errorf("close object writer: %v", err)
-				}
-				if _, err := w.Object(); err != nil {
-					return fmt.Errorf("write op: %v", err)
 				}
 				return nil
 			}()

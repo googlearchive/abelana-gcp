@@ -27,7 +27,6 @@ RUN cd && \
 ADD Godeps/_workspace/ /go/
 ADD imagemagick.go /go/src/github.com/GoogleCloudPlatform/abelana-gcp/imagemagick/imagemagick.go
 RUN go install github.com/GoogleCloudPlatform/abelana-gcp/imagemagick && touch ~/logs
-ADD service-account.json .
-CMD /go/bin/imagemagick -account=/service-account.json
+CMD /go/bin/imagemagick
 
 EXPOSE 8080

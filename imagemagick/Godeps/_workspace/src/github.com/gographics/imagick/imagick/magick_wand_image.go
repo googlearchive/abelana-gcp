@@ -5,12 +5,15 @@
 package imagick
 
 /*
-#cgo pkg-config: MagickWand
 #include <wand/MagickWand.h>
 */
 import "C"
+
 import (
+	"errors"
+	"fmt"
 	"os"
+	"reflect"
 	"unsafe"
 )
 
@@ -738,16 +741,82 @@ func (mw *MagickWand) EvaluateImageChannel(channel ChannelType, op EvaluateOpera
 // these types: CharPixel, DoublePixel, FloatPixel, IntegerPixel, LongPixel,
 // QuantumPixel, or ShortPixel.
 //
-// pixels: This array of values contain the pixel components as defined by
-// map and type.
 //
-func (mw *MagickWand) ExportImagePixels(x, y int, cols, rows uint, pmap string, stype StorageType) (pixels []interface{}, err error) {
+// StorageType defines the underlying slice type of the returned interface{}:
+//     PIXEL_CHAR     => []byte
+//     PIXEL_DOUBLE   => []float64
+//     PIXEL_FLOAT    => []float32
+//     PIXEL_SHORT    => []int16
+//     PIXEL_INTEGER  => []int32
+//     PIXEL_LONG     => []int64
+//     PIXEL_QUANTUM  => []int64
+//
+// Example:
+//
+//     val, err := wand.ExportImagePixels(0, 0, 512, 512, "RGB", PIXEL_FLOAT)
+//     if err != nil {
+//         panic(err.Error())
+//     }
+//     floatPixels := val.([]float32)
+//
+func (mw *MagickWand) ExportImagePixels(x, y int, cols, rows uint,
+	pmap string, stype StorageType) (interface{}, error) {
+
+	maplen := (int(cols) - x) * (int(rows) - y) * len(pmap)
+
+	var (
+		pixel_iface interface{}
+		ptr         unsafe.Pointer
+	)
+
+	switch stype {
+
+	case PIXEL_CHAR:
+		pixels := make([]byte, maplen)
+		pixel_iface = reflect.ValueOf(pixels).Interface()
+		ptr = unsafe.Pointer(&pixels[0])
+
+	case PIXEL_DOUBLE:
+		pixels := make([]float64, maplen)
+		pixel_iface = reflect.ValueOf(pixels).Interface()
+		ptr = unsafe.Pointer(&pixels[0])
+
+	case PIXEL_FLOAT:
+		pixels := make([]float32, maplen)
+		pixel_iface = reflect.ValueOf(pixels).Interface()
+		ptr = unsafe.Pointer(&pixels[0])
+
+	case PIXEL_SHORT:
+		pixels := make([]int16, maplen)
+		pixel_iface = reflect.ValueOf(pixels).Interface()
+		ptr = unsafe.Pointer(&pixels[0])
+
+	case PIXEL_INTEGER:
+		pixels := make([]int32, maplen)
+		pixel_iface = reflect.ValueOf(pixels).Interface()
+		ptr = unsafe.Pointer(&pixels[0])
+
+	case PIXEL_LONG, PIXEL_QUANTUM:
+		pixels := make([]int64, maplen)
+		pixel_iface = reflect.ValueOf(pixels).Interface()
+		ptr = unsafe.Pointer(&pixels[0])
+
+	default:
+		return nil, errors.New("StorageType is not valid for this operation")
+
+	}
+
 	cspmap := C.CString(pmap)
 	defer C.free(unsafe.Pointer(cspmap))
-	maplen := (int(cols) - x) * (int(rows) - y) * len(pmap)
-	pixels = make([]interface{}, maplen)
-	C.MagickExportImagePixels(mw.mw, C.ssize_t(x), C.ssize_t(y), C.size_t(cols), C.size_t(rows), cspmap, C.StorageType(stype), unsafe.Pointer(&pixels[0]))
-	return nil, mw.GetLastError()
+
+	C.MagickExportImagePixels(mw.mw,
+		C.ssize_t(x), C.ssize_t(y),
+		C.size_t(cols), C.size_t(rows),
+		cspmap,
+		C.StorageType(stype),
+		ptr)
+
+	return pixel_iface, mw.GetLastError()
 }
 
 // Extends the image as defined by the geometry, gravitt, and wand background
@@ -956,9 +1025,9 @@ func (mw *MagickWand) GetImageClipMask() *MagickWand {
 
 // Returns the image background color.
 func (mw *MagickWand) GetImageBackgroundColor() (bgColor *PixelWand, err error) {
-	var cbgcolor C.PixelWand
-	C.MagickGetImageBackgroundColor(mw.mw, &cbgcolor)
-	return &PixelWand{&cbgcolor}, mw.GetLastError()
+	cbgcolor := NewPixelWand()
+	C.MagickGetImageBackgroundColor(mw.mw, cbgcolor.pw)
+	return cbgcolor, mw.GetLastError()
 }
 
 // Implements direct to memory image formats. It returns the image as a blob
@@ -1000,9 +1069,9 @@ func (mw *MagickWand) GetImageBluePrimary() (x, y float64, err error) {
 
 // Returns the image border color.
 func (mw *MagickWand) GetImageBorderColor() (borderColor *PixelWand, err error) {
-	var cbc C.PixelWand
-	C.MagickGetImageBorderColor(mw.mw, &cbc)
-	return &PixelWand{&cbc}, mw.GetLastError()
+	cbc := NewPixelWand()
+	C.MagickGetImageBorderColor(mw.mw, cbc.pw)
+	return cbc, mw.GetLastError()
 }
 
 // Gets the depth for one or more image channels.
@@ -1097,9 +1166,9 @@ func (mw *MagickWand) GetImageChannelStatistics() []ChannelStatistics {
 
 // Returns the color of the specified colormap index.
 func (mw *MagickWand) GetImageColormapColor(index uint) (color *PixelWand, err error) {
-	var cpw C.PixelWand
-	C.MagickGetImageColormapColor(mw.mw, C.size_t(index), &cpw)
-	return &PixelWand{&cpw}, mw.GetLastError()
+	cpw := NewPixelWand()
+	C.MagickGetImageColormapColor(mw.mw, C.size_t(index), cpw.pw)
+	return cpw, mw.GetLastError()
 }
 
 // Gets the number of unique colors in the image.
@@ -1242,9 +1311,9 @@ func (mw *MagickWand) GetImageLength() (length uint, err error) {
 
 // Returns the image matte color.
 func (mw *MagickWand) GetImageMatteColor() (matteColor *PixelWand, err error) {
-	var cptrpw (*C.PixelWand)
-	C.MagickGetImageMatteColor(mw.mw, cptrpw)
-	return &PixelWand{cptrpw}, mw.GetLastError()
+	cptrpw := NewPixelWand()
+	C.MagickGetImageMatteColor(mw.mw, cptrpw.pw)
+	return cptrpw, mw.GetLastError()
 }
 
 // Returns the image orientation.
@@ -1267,9 +1336,9 @@ func (mw *MagickWand) GetImagePage() (w, h uint, x, y int, err error) {
 
 // Returns the color of the specified pixel.
 func (mw *MagickWand) GetImagePixelColor(x, y int) (color *PixelWand, err error) {
-	var cpw C.PixelWand
-	C.MagickGetImagePixelColor(mw.mw, C.ssize_t(x), C.ssize_t(y), &cpw)
-	return &PixelWand{&cpw}, mw.GetLastError()
+	pw := NewPixelWand()
+	C.MagickGetImagePixelColor(mw.mw, C.ssize_t(x), C.ssize_t(y), pw.pw)
+	return pw, mw.GetLastError()
 }
 
 // Returns the chromaticy red primary point.
@@ -1403,7 +1472,8 @@ func (mw *MagickWand) ImplodeImage(radius float64) error {
 // The pixel data can be either byte, int16, int32, int64, float32, or float64
 // in the order specified by map. Suppose your want to upload the first
 // scanline of a 640x480 image from character data in red-green-blue order:
-// wand.ImportImagePixels(0, 0, 640, 1, "RGB", CharPixel, pixels)
+//
+//     wand.ImportImagePixels(0, 0, 640, 1, "RGB", PIXEL_CHAR, pixels)
 //
 // x, y, cols, rows: These values define the perimeter of a region of pixels
 // you want to define.
@@ -1415,17 +1485,79 @@ func (mw *MagickWand) ImplodeImage(radius float64) error {
 //
 // stype: Define the data type of the pixels. Float and double types are
 // expected to be normalized [0..1] otherwise [0..QuantumRange]. Choose from
-// these types: CharPixel, ShortPixel, IntegerPixel, LongPixel, FloatPixel, or
-// DoublePixel.
+// these types:
 //
-// pixels: This array of values contain the pixel components as defined by map
-// and type. You must preallocate this array where the expected length varies
+//     PIXEL_CHAR
+//     PIXEL_SHORT
+//     PIXEL_INTEGER
+//     PIXEL_LONG
+//     PIXEL_FLOAT
+//     PIXEL_DOUBLE
+//
+// pixels: This slice of values contain the pixel components as defined by map
+// and type. You must pre-allocate this slice where the expected length varies
 // depending on the values of width, height, map, and type.
 //
-func (mw *MagickWand) ImportImagePixels(x, y int, cols, rows uint, pmap string, stype StorageType, pixels []interface{}) error {
+func (mw *MagickWand) ImportImagePixels(x, y int, cols, rows uint, pmap string,
+	stype StorageType, pixels interface{}) error {
+
 	cspmap := C.CString(pmap)
 	defer C.free(unsafe.Pointer(cspmap))
-	C.MagickImportImagePixels(mw.mw, C.ssize_t(x), C.ssize_t(y), C.size_t(cols), C.size_t(rows), cspmap, C.StorageType(stype), unsafe.Pointer(&pixels[0]))
+
+	var ptr unsafe.Pointer
+
+	switch t := pixels.(type) {
+
+	case []byte:
+		v := &t[0]
+		ptr = unsafe.Pointer(v)
+		if stype == PIXEL_UNDEFINED {
+			stype = PIXEL_CHAR
+		}
+
+	case []float64:
+		v := &t[0]
+		ptr = unsafe.Pointer(v)
+		if stype == PIXEL_UNDEFINED {
+			stype = PIXEL_DOUBLE
+		}
+
+	case []float32:
+		v := &t[0]
+		ptr = unsafe.Pointer(v)
+		if stype == PIXEL_UNDEFINED {
+			stype = PIXEL_FLOAT
+		}
+
+	case []int16:
+		v := &t[0]
+		ptr = unsafe.Pointer(v)
+		if stype == PIXEL_UNDEFINED {
+			stype = PIXEL_SHORT
+		}
+
+	case []int32:
+		v := &t[0]
+		ptr = unsafe.Pointer(v)
+		if stype == PIXEL_UNDEFINED {
+			stype = PIXEL_INTEGER
+		}
+
+	case []int64:
+		v := &t[0]
+		ptr = unsafe.Pointer(v)
+		if stype == PIXEL_UNDEFINED {
+			stype = PIXEL_LONG
+		}
+
+	default:
+		return fmt.Errorf("Type %T is not valid for this operation", t)
+
+	}
+
+	C.MagickImportImagePixels(mw.mw, C.ssize_t(x), C.ssize_t(y), C.size_t(cols),
+		C.size_t(rows), cspmap, C.StorageType(stype), ptr)
+
 	return mw.GetLastError()
 }
 
@@ -2025,6 +2157,9 @@ func (mw *MagickWand) ReadImage(filename string) error {
 
 // Reads an image or image sequence from a blob.
 func (mw *MagickWand) ReadImageBlob(blob []byte) error {
+	if len(blob) == 0 {
+		return errors.New("zero-length blob not permitted")
+	}
 	C.MagickReadImageBlob(mw.mw, unsafe.Pointer(&blob[0]), C.size_t(len(blob)))
 	return mw.GetLastError()
 }
